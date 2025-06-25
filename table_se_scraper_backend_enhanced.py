@@ -251,6 +251,8 @@ def export_with_completeness_check(products, export_func, **export_kwargs):
     """
     Exports products and logs any incomplete entries.
     """
+    if not callable(export_func):
+        raise ValueError("export_func must be a callable export function, got None or non-callable instead.")
     incomplete = check_field_completeness(products)
     if incomplete:
         logger.warning(f"Warning: {len(incomplete)} products are missing required fields.")
