@@ -1,18 +1,42 @@
 import json
 import os
 import hashlib
+import shutil
+import tempfile
 
 CACHE_FILE = "product_cache.json"
 
 def load_cache():
+    """
+    Load the product cache from disk.
+    If the cache is corrupted, back up the corrupted file and start with an empty cache.
+    """
     if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError as e:
+            # Backup the corrupted file
+            backup_file = CACHE_FILE + ".corrupt"
+            shutil.copy2(CACHE_FILE, backup_file)
+            print(f"Warning: Cache file corrupted! Backup saved as {backup_file}. Starting with empty cache. ({e})")
+            return {}
+        except Exception as e:
+            print(f"Error loading cache: {e}")
+            return {}
     return {}
 
 def save_cache(cache):
-    with open(CACHE_FILE, "w", encoding="utf-8") as f:
-        json.dump(cache, f, ensure_ascii=False, indent=2)
+    """
+    Save the product cache to disk using an atomic write to prevent corruption.
+    """
+    try:
+        with tempfile.NamedTemporaryFile('w', delete=False, encoding='utf-8') as tf:
+            json.dump(cache, tf, ensure_ascii=False, indent=2)
+            tempname = tf.name
+        os.replace(tempname, CACHE_FILE)  # Atomic on most systems
+    except Exception as e:
+        print(f"Error saving cache: {e}")
 
 def hash_content(content):
     """Generate an MD5 hash of the content string for change detection."""
