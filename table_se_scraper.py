@@ -485,6 +485,11 @@ def enhanced_main_with_scan_and_error_file():
 # ========================
 # 8. Run and download (Colab-friendly)
 # ========================
+def main():
+    xlsx_path, error_xlsx_path = enhanced_main_with_scan_and_error_file()
+    print("Main scraping/export complete.")
+    return xlsx_path, error_xlsx_path
+
 if __name__ == "__main__":
     xlsx_path, error_xlsx_path = enhanced_main_with_scan_and_error_file()
     if xlsx_path:
