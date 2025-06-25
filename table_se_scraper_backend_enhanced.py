@@ -250,9 +250,20 @@ def scrape_all_products_deep_enhanced(tree: List[Dict[str, Any]], skip_func, ext
 def export_with_completeness_check(products, export_func, **export_kwargs):
     """
     Exports products and logs any incomplete entries.
+
+    Parameters:
+        products (list): List of product dicts to export.
+        export_func (callable): Function to export products (e.g., export_to_xlsx). Must not be None.
+        **export_kwargs: Extra arguments for the export function.
+
+    Raises:
+        ValueError: If export_func is None or not callable.
+
+    Returns:
+        The result of the export_func (usually the output file name).
     """
     if not callable(export_func):
-        raise ValueError("export_func must be a callable export function, got None or non-callable instead.")
+        raise ValueError("export_func must be a callable export function (e.g., export_to_xlsx), but got None or non-callable instead.")
     incomplete = check_field_completeness(products)
     if incomplete:
         logger.warning(f"Warning: {len(incomplete)} products are missing required fields.")
