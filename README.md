@@ -1,155 +1,215 @@
 # Table.se Scraper Suite
 
-_A robust, modular, and precise Python scraper for [Table.se](https://www.table.se)_
-
-**Features:**
-- Parallel scraping of product categories and products
-- Smart validation and anomaly detection of product data
-- Export to Excel with category-based color coding
-- Multiple export options: local, Google Drive, email, S3, Dropbox (via plugin module)
-- Modular structure for easy extension
+A modular, robust, and production-ready scraper for [Table.se](https://www.table.se), featuring interactive CLI, blazing-fast parallel scraping, smart validation, rich exports, and beautiful, developer-friendly logging.
 
 ---
 
-## Repository Structure
+## ✨ **What’s New?**
 
-```text
-table-se-scraper-suite/
-├── table_se_scraper.py
-├── table_se_scraper_backend_enhanced.py
-├── table_se_smart_scanner.py
-├── table_se_export_utils.py
-├── requirements.txt
-├── .gitignore
-└── README.md
+- **Supercharged Logging**:  
+  - Console logs are now colorful, emoji-rich, and show module/line number for easier debugging.
+  - Logs are also written to `scraper.log` for post-run analysis.
+- **Centralized Logging Setup**:  
+  - `setup_logging()` in `table_se_scraper_performance.py` sets up all logging with one call—no more repeated boilerplate!
+- **Parallel Scraping**:  
+  - Backend now supports robust, multi-threaded scraping for speed and reliability.
+- **Smart Data Validation**:  
+  - `table_se_smart_scanner.py` checks all products for missing or suspicious data, price outliers, etc.
+- **Exclusions Handling**:  
+  - `exclusions.py` allows you to define product/category exclusions, or other filtering logic.
+- **Highly Modular**:  
+  - Each feature lives in its own file, so you can mix, match, or extend with ease.
+- **Colab-Friendly**:  
+  - Tips and code snippets for running in Google Colab are included below.
+- **Ready for CI/Automation**:  
+  - Designed to run in notebooks, scripts, or automated pipelines.
+
+---
+
+## 🗂️ **File Overview**
+
+| File                                | Purpose/Description                                                                                   |
+|--------------------------------------|------------------------------------------------------------------------------------------------------|
+| `table_se_cli.py`                   | Interactive CLI to run the scraper and choose export destinations.                                   |
+| `table_se_scraper.py`               | Main scraping logic: categories, products, export to XLSX. Calls logging and backend enhancements.   |
+| `table_se_scraper_performance.py`   | Logging setup (`setup_logging()`), retry wrappers, polite delays, proxy support.                     |
+| `table_se_smart_scanner.py`         | Validates scraped data for missing/suspect fields, outliers, SKU/image checks.                       |
+| `table_se_scraper_backend_enhanced.py` | Fast, threaded scraping, deduplication, completeness checks before export.                        |
+| `table_se_export_utils.py`          | Exports to Google Drive, Email, S3, Dropbox.                                                         |
+| `table_se_viz.py`                   | Live Streamlit dashboard (progress, logs, data preview).                                             |
+| `exclusions.py`                     | List or logic of product/category exclusions (e.g., skip certain brands, categories, etc.).          |
+| `requirements.txt`                  | All required Python packages for easy setup.                                                         |
+
+---
+
+## 🖥️ **Screenshots**
+
+> *(Replace these with actual screenshots from your runs!)*
+
+### Interactive CLI
+![CLI screenshot](screenshots/cli.png)
+
+### Colorful Logs in Terminal
+![Logs screenshot](screenshots/logs.png)
+
+### Smart Data Scanner Output
+![Scanner screenshot](screenshots/scanner.png)
+
+### Streamlit Dashboard
+![Dashboard screenshot](screenshots/dashboard.png)
+
+---
+
+## 🚀 **Quickstart**
+
+### 1. **Install dependencies**
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. **Run the CLI**
+
+```bash
+python table_se_cli.py
+```
+- Prompts you to start scraping, choose export method (Google Drive, Email, S3, Dropbox, or skip).
+
+### 3. **Or run the scraper directly**
+
+```bash
+python table_se_scraper.py
+```
+
+### 4. **Check logs**
+
+- **Console:** Colorful, emoji, context-rich logs.
+- **File:** See `scraper.log` for a persistent, detailed log.
+
+### 5. **Live dashboard (optional)**
+
+```bash
+python table_se_viz.py
+```
+- Opens a Streamlit app for live progress and logs.
+
+---
+
+## 🧑‍💻 **Using in Google Colab**
+
+- **Upload your repo files, then:**
+  ```python
+  !pip install -r requirements.txt
+  from table_se_scraper_performance import setup_logging
+  setup_logging()
+  from table_se_scraper import main
+  main() # or your desired entry point
+  ```
+- **Download results:**
+  - Use Colab’s file browser (left sidebar) to download `scraper.log`, XLSX files, etc.
+- **Tips:**
+  - Don’t use `input()` prompts in Colab. Prefer functions that accept parameters.
+  - Use `%run table_se_scraper.py` or adapt code into a Colab cell.
+
+---
+
+## 🛠️ **Advanced Usage & Tips**
+
+- **Customize Logging:**  
+  Edit `setup_logging()` in `table_se_scraper_performance.py` for your own color theme, icons, or log level.
+- **Add/Change Exclusions:**  
+  Edit `exclusions.py` to skip certain brands, categories, or products.
+- **Export to New Destinations:**  
+  Add a function to `table_se_export_utils.py` and call from `table_se_cli.py`.
+- **Batch/CI runs:**  
+  Script your runs, and use the log file for monitoring or debugging.
+- **Notebook Use:**  
+  Import scraper functions and call directly in your Jupyter or Colab notebooks.
+
+---
+
+## 🧩 **How Each File Works Together**
+
+1. **CLI/Script calls** →  
+2. **`setup_logging()`** (sets up all logging globally) →  
+3. **Scraper core** (`table_se_scraper.py`) fetches categories/products →  
+4. **Backend** (`table_se_scraper_backend_enhanced.py`) does parallel fetching, deduplication →  
+5. **Smart Scanner** (`table_se_smart_scanner.py`) validates/flags bad data →  
+6. **Exclusions** (`exclusions.py`) filters out unwanted data →  
+7. **Export Utils** (`table_se_export_utils.py`) send XLSX where you want →  
+8. **Logs everywhere**: All steps log events, warnings, errors, and successes.
+
+---
+
+## 🔥 **Logging Example**
+
+Console output:
+```
+📝 19:41:18 INFO [table_se_scraper:134]: Scraping started
+😬 19:41:19 WARNING [table_se_scraper:155]: Rate limit approaching
+💥 19:41:21 ERROR [table_se_scraper:202]: Could not fetch page
+🔥 19:41:25 CRITICAL [table_se_scraper:304]: Scraper crashed!
+```
+
+File (`scraper.log`):
+```
+19:41:18 INFO [table_se_scraper:134]: Scraping started
+19:41:19 WARNING [table_se_scraper:155]: Rate limit approaching
+19:41:21 ERROR [table_se_scraper:202]: Could not fetch page
+19:41:25 CRITICAL [table_se_scraper:304]: Scraper crashed!
 ```
 
 ---
 
-## File Overview & Main Functions
+## 📁 **Adding/Editing Exclusions**
 
-### **1. `table_se_scraper.py`**
-- **Main entry point** for scraping Table.se
-- Handles category and product extraction
-- Exports scraped data to Excel (`export_to_xlsx`)
-- Usage:
-    ```bash
-    python table_se_scraper.py
-    ```
-- **Main functions:**
-    - `extract_category_tree()`
-    - `extract_products_from_category(url)`
-    - `extract_product_data(url)`
-    - `scrape_all_products_deep()`
-    - `export_to_xlsx(data, base_name)`
-    - `main()` — orchestrates scraping and export
-
-### **2. `table_se_scraper_backend_enhanced.py`**
-- Provides **parallel and robust backend** logic
-- Manages multithreading, deduplication, and error handling
-- Used by `table_se_scraper.py` as `main_enhanced()`
-- **Main functions:**
-    - `main_enhanced(extract_category_tree_func, skip_func, extract_func, export_func, max_workers)`
-
-### **3. `table_se_smart_scanner.py`**
-- **Smart scanner/validator** module
-- Validates product data, detects anomalies, and reports errors
-- Used for post-processing to ensure data quality
-- **Main functions:**
-    - `smart_scan_products(products)`
-    - `validate_product(product)`
-    - `report_product_errors(errors)`
-
-### **4. `table_se_export_utils.py`**
-- **Optional export utilities module**
-- Lets you easily export the resulting `.xlsx` file to various destinations
-- **Functions (all optional, call as needed):**
-    - `export_to_gdrive(local_filepath, gdrive_dir)`
-    - `export_via_email(local_filepath, recipient_email, subject, body)`
-    - `export_to_s3(local_filepath, bucket, object_name)`
-    - `export_to_dropbox(local_filepath, dropbox_path, access_token)`
-
----
-
-## Usage
-
-### **Basic Scraping & Export (Local)**
-1. Install requirements:
-    ```bash
-    pip install -r requirements.txt
-    ```
-2. Run the main script:
-    ```bash
-    python table_se_scraper.py
-    ```
-3. After scraping, you will see:
-    ```
-    Export till XLSX klar: table_produkter_YYYYMMDD_HHMMSS.xlsx
-    ```
-
-### **Optional: Export to Cloud/Email (Uncomment to Use)**
-
-After the Excel file is created (the variable is `xlsx_path`), you can use export options from `table_se_export_utils.py`:
-
+Edit `exclusions.py` like this:
 ```python
-from table_se_export_utils import export_to_gdrive, export_via_email, export_to_s3, export_to_dropbox
+# List of categories, brands, or product names to exclude
+EXCLUDED_CATEGORIES = ["Gift Cards", "Special Offers"]
+EXCLUDED_BRANDS = ["BrandX", "BrandY"]
 
-# Google Drive (Colab/Jupyter)
-# export_to_gdrive(xlsx_path, gdrive_dir='/content/drive/MyDrive/')
-
-# Email (requires yagmail, and set env vars YAGMAIL_USER/YAGMAIL_PASS)
-# export_via_email(xlsx_path, recipient_email="your@email.com")
-
-# S3 (requires boto3 and AWS credentials)
-# export_to_s3(xlsx_path, bucket="your-bucket", object_name="exports/yourfile.xlsx")
-
-# Dropbox (requires dropbox token)
-# export_to_dropbox(xlsx_path, dropbox_path="/exports/yourfile.xlsx", access_token="YOUR_DROPBOX_ACCESS_TOKEN")
+def is_excluded(product):
+    return (product['category'] in EXCLUDED_CATEGORIES or
+            product['brand'] in EXCLUDED_BRANDS)
 ```
-
-Uncomment the relevant lines in your script to enable.
-
----
-
-## Advanced
-
-- **Validation:**  
-  The smart scanner is used for validating and flagging problematic products.  
-  You can use/extend `smart_scan_products()` in `table_se_smart_scanner.py`.
-
-- **Parallelism:**  
-  By default, `main_enhanced()` uses up to 8 worker threads. You can adjust this for faster or more conservative scraping.
-
-- **Extensibility:**  
-  You can add new export methods by extending `table_se_export_utils.py`.
+*Integrate this in your main scraper or scanner to skip matching products.*
 
 ---
 
-## FAQ
+## 📦 **Requirements**
 
-**Q: How do I upload exports to Google Drive or S3?**  
-A: Uncomment the relevant function call in your script and ensure the dependencies (and credentials) are set up.
-
-**Q: Can I add more validation rules?**  
-A: Yes! Edit `validate_product()` in `table_se_smart_scanner.py`.
-
-**Q: How do I change the export filename/location?**  
-A: Pass a different `base_name` to `export_to_xlsx()` in `table_se_scraper.py`.
-
----
-
-## Requirements
-
-See `requirements.txt`. Most common dependencies are:
-- requests
-- beautifulsoup4
-- openpyxl
-- tqdm
-- numpy
+See `requirements.txt`. Main packages:
+- `requests`
+- `beautifulsoup4`
+- `openpyxl`
+- `yagmail` (for email export)
+- `boto3` (for S3 export)
+- `dropbox`
+- `streamlit`
+- `colorama` or similar for logging (optional, but enhances colors in some terminals)
 
 ---
 
-## License
+## 📝 **FAQ**
 
-Experimental use only.  
-Bonkbusiness 2025 — For support, open an issue!
+**Q: How do I add a new export method?**  
+A: Add a function in `table_se_export_utils.py`, then call it from the CLI or your script.
+
+**Q: How do I suppress colored logs?**  
+A: Edit or remove the color codes in `FancyFormatter` in `table_se_scraper_performance.py`.
+
+**Q: Can I run on Windows/Mac/Linux/Colab?**  
+A: Yes—just make sure dependencies are installed. For Colab, see usage tips above.
+
+---
+
+## 👤 **Author**
+
+[bonkbusiness](https://github.com/bonkbusiness)
+
+---
+
+## 📄 License
+
+MIT — see [LICENSE](LICENSE)
