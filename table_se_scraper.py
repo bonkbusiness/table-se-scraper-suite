@@ -1,7 +1,7 @@
 # ========================
 # 1. Install dependencies
 # ========================
-!pip install requests beautifulsoup4 openpyxl
+# !pip install requests beautifulsoup4 openpyxl
 
 # ========================
 # 2. Imports and Logging
@@ -13,32 +13,20 @@ import unicodedata
 from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from urllib.parse import urljoin, urlparse
 
-# ========================
-# Imports main_enhanced from table_se_scraper_backend
-# ========================
+from exclusions import EXCLUDED_CATEGORIES, EXCLUDED_PRODUCTS
+from product_cache import get_cached_product, update_cache, hash_content
 from table_se_scraper_backend_enhanced import main_enhanced
-
-
-# ========================
-# Imports scanner functions from table_se_smart_scanner
-# ========================
+from table_se_scraper_performance import setup_logging, robust_scrape
 from table_se_smart_scanner import smart_scan_products
-products, product_errors = smart_scan_products(products)
-
-
+setup_logging()
 import logging
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s: %(message)s"
-)
-logger = logging.getLogger("table_scraper")
 
 def logprint(msg):
     print(msg)
-    logger.info(msg)
+    logging.info(msg)
 
 BASE_URL = "https://www.table.se"
 
@@ -95,13 +83,17 @@ def parse_value_unit(text):
     return "", ""
 
 def should_skip(catname):
-    EXCLUDE_RAW = [
-        "Hyra container", "Förrådscontainrar", "Kylcontainrar", "Fryscontainrar", "Kök & disk", "Toalettbodar",
-        "Kontorsbodar", "Eventcontainrar", "Specialcontainrar", "Containertillbehör", "Köpa container",
-        "Begagnade containrar", "Self storage", "Flytt & förvaringsservice", "Transporter"
-    ]
-    EXCLUDE_NORMALIZED = [normalize_text(x) for x in EXCLUDE_RAW]
+    EXCLUDE_NORMALIZED = [normalize_text(x) for x in EXCLUDED_CATEGORIES]
     return normalize_text(catname) in EXCLUDE_NORMALIZED
+
+def should_skip_product(product_data):
+    namn = product_data.get("Namn", "")
+    artikelnummer = product_data.get("Artikelnummer", "")
+    produkturl = product_data.get("Produkt-URL", "")
+    for excl in EXCLUDED_PRODUCTS:
+        if excl in namn or excl in artikelnummer or excl in produkturl:
+            return True
+    return False
 
 def get_soup(url):
     logprint(f"Hämtar: {url}")
@@ -184,74 +176,113 @@ def extract_category_tree():
 # ========================
 # 5. Scraper functions (3-level deep)
 # ========================
-def extract_products_from_category(category_url):
-    product_urls = set()
-    page = 1
-    while True:
-        paged_url = f"{category_url}?page={page}" if page > 1 else category_url
-        soup = get_soup(paged_url)
-        if not soup:
-            break
-        product_links = soup.select("ul.products li.product a.woocommerce-LoopProduct-link")
-        if not product_links:
-            break
-        for link in product_links:
-            href = link.get("href")
-            if href:
-                product_urls.add(href)
-        next_page = soup.select_one("a.next")
-        if not next_page:
-            break
-        page += 1
-    logprint(f"Hittade {len(product_urls)} produkter i kategori: {category_url}")
-    return list(product_urls)
-
 def extract_product_data(product_url):
     soup = get_soup(product_url)
     if not soup:
         logprint(f"Kunde inte ladda produkt: {product_url}")
         return None
-    try:
-        namn = soup.select_one("h1.product_title").get_text(strip=True)
-    except Exception:
-        namn = ""
-    artikelnummer = soup.select_one(".sku").get_text(strip=True) if soup.select_one(".sku") else ""
-    pris_inkl = soup.select_one("p.price ins .amount, p.price .amount")
-    pris_inkl = pris_inkl.get_text(strip=True).replace("kr", "").replace(" ", "").replace(",", ".") if pris_inkl else ""
-    pris_exkl = ""
-    if pris_inkl:
-        try:
-            pris_exkl = str(round(float(pris_inkl)/1.25, 2))
-        except Exception:
-            pris_exkl = ""
+
+    # Artikelnummer: <strong> inside .woocommerce-product-details__short-description
+    short_desc = soup.select_one(".woocommerce-product-details__short-description")
+    artikelnummer = ""
+    if short_desc:
+        strong = short_desc.find("strong")
+        if strong:
+            artikelnummer = strong.get_text(strip=True)
+
+    # Hash the relevant HTML for change detection
+    content_hash = hash_content(soup.prettify())
+
+    # Try the cache
+    cached = get_cached_product(artikelnummer, content_hash)
+    if cached:
+        logprint(f"Produkt {artikelnummer} laddad från cache.")
+        return cached
+
+    # Namn: h1.edgtf-single-product-title[itemprop='name']
+    namn = ""
+    selectors = [
+        "h1.edgtf-single-product-title[itemprop='name']",
+        "h1.product_title"
+    ]
+    for sel in selectors:
+        el = soup.select_one(sel)
+        if el:
+            namn = el.get_text(strip=True)
+            break
+
+    # Pris inkl. moms: .product_price_in
+    pris_inkl_elem = soup.select_one(".product_price_in")
+    pris_inkl = (
+        pris_inkl_elem.get_text(strip=True)
+        .replace("kr", "")
+        .replace(" ", "")
+        .replace(",", ".")
+        if pris_inkl_elem else ""
+    )
+
+    # Pris exkl. moms: .product_price_ex
+    pris_exkl_elem = soup.select_one(".product_price_ex")
+    pris_exkl = (
+        pris_exkl_elem.get_text(strip=True)
+        .replace("kr", "")
+        .replace(" ", "")
+        .replace(",", ".")
+        if pris_exkl_elem else ""
+    )
+
+    # Produktbild-URL: as before
     produktbild_url = ""
     img = soup.select_one(".woocommerce-product-gallery__image img")
     if img and img.get("src"):
         produktbild_url = img.get("src")
-    attr_texts = {}
-    attr_rows = soup.select(".woocommerce-product-attributes-item")
-    for row in attr_rows:
-        key = row.select_one(".woocommerce-product-attributes-item__label")
-        val = row.select_one(".woocommerce-product-attributes-item__value")
-        if key and val:
-            attr_texts[key.get_text(strip=True).lower()] = val.get_text(" ", strip=True)
-    m_att = attr_texts.get("mått", "")
-    mått_dict = parse_measurements(m_att)
-    d_att = attr_texts.get("diameter", "")
-    diameter_v, diameter_e = parse_value_unit(d_att)
+
+    # ===================
+    # More Info Section
+    # ===================
+    more_info = soup.select_one('.product_more_info.vc_col-md-6')
+    info_dict = {}
+    if more_info:
+        for p in more_info.find_all('p'):
+            # Process <p> content with <br> for each line
+            lines = []
+            for elem in p.contents:
+                if isinstance(elem, str):
+                    lines.extend(elem.split('\n'))
+                elif getattr(elem, 'name', None) == 'br':
+                    lines.append('\n')
+                else:
+                    lines.append(elem.get_text())
+            text = ''.join(lines)
+            for line in text.split('\n'):
+                line = line.strip()
+                if not line or ':' not in line:
+                    continue
+                label, value = line.split(':', 1)
+                label = label.strip().capitalize()
+                value = value.strip()
+                info_dict[label] = value
+
+    farg = info_dict.get('Färg', '')
+    material = info_dict.get('Material', '')
+    serie = info_dict.get('Serie', '')
+    matt_text = info_dict.get('Mått', '') or info_dict.get('Mått (text)', '')
+    diameter_text = info_dict.get('Diameter', '')
+    kapacitet_text = info_dict.get('Kapacitet', '')
+    volym_text = info_dict.get('Volym', '')
+
+    # Parse measurements and units if available
+    mått_dict = parse_measurements(matt_text)
+    diameter_v, diameter_e = parse_value_unit(diameter_text)
     if not diameter_v and mått_dict.get("Diameter (värde)"):
         diameter_v = mått_dict.get("Diameter (värde)")
         diameter_e = mått_dict.get("Diameter (enhet)")
-    kap_att = attr_texts.get("kapacitet", "")
-    kap_v, kap_e = parse_value_unit(kap_att)
-    vol_att = attr_texts.get("volym", "")
-    vol_v, vol_e = parse_value_unit(vol_att)
+    kap_v, kap_e = parse_value_unit(kapacitet_text)
+    vol_v, vol_e = parse_value_unit(volym_text)
     längd_v, längd_e = mått_dict.get("Längd (värde)"), mått_dict.get("Längd (enhet)")
     bredd_v, bredd_e = mått_dict.get("Bredd (värde)"), mått_dict.get("Bredd (enhet)")
     höjd_v, höjd_e = mått_dict.get("Höjd (värde)"), mått_dict.get("Höjd (enhet)")
-    färg = attr_texts.get("färg", "")
-    material = attr_texts.get("material", "")
-    serie = attr_texts.get("serie", "")
+
     data = {
         "Namn": namn,
         "Artikelnummer": artikelnummer,
@@ -272,57 +303,45 @@ def extract_product_data(product_url):
         "Kapacitet (enhet)": kap_e,
         "Volym (värde)": vol_v,
         "Volym (enhet)": vol_e,
-        "Färg": färg,
+        "Färg": farg,
         "Material": material,
         "Serie": serie,
         "Produktbild-URL": produktbild_url,
         "Produkt-URL": product_url
     }
+
+    # Update cache after successful extraction
+    update_cache(artikelnummer, data, content_hash)
     logprint(f"Extraherad produkt: {namn} (URL: {product_url})")
     return data
 
-def scrape_all_products_deep():
-    tree = extract_category_tree()
-    all_products = []
-    for cat in tree:
-        if should_skip(cat["name"]):
-            continue
-        if cat["subs"]:
-            for sub in cat["subs"]:
-                if should_skip(sub["name"]):
-                    continue
-                if sub["subs"]:
-                    for subsub in sub["subs"]:
-                        if should_skip(subsub["name"]):
-                            continue
-                        urls = extract_products_from_category(subsub["url"])
-                        for url in urls:
-                            try:
-                                pdata = extract_product_data(url)
-                                if pdata:
-                                    all_products.append(pdata)
-                            except Exception as e:
-                                logprint(f"Kunde inte extrahera produkt: {url} ({e})")
-                else:
-                    urls = extract_products_from_category(sub["url"])
-                    for url in urls:
-                        try:
-                            pdata = extract_product_data(url)
-                            if pdata:
-                                all_products.append(pdata)
-                        except Exception as e:
-                            logprint(f"Kunde inte extrahera produkt: {url} ({e})")
+def extract_products_from_category(category_url):
+    soup = get_soup(category_url)
+    if not soup:
+        return []
+    product_urls = []
+    # Page through if there are multiple pages
+    next_page = True
+    page_number = 1
+    while next_page:
+        prods = soup.select(".product a.woocommerce-LoopProduct-link, .products .product a")
+        for a in prods:
+            href = a.get("href")
+            if href:
+                url = urljoin(BASE_URL, href)
+                if url not in product_urls:
+                    product_urls.append(url)
+        # Look for next page
+        next_btn = soup.select_one(".page-numbers .next")
+        if next_btn and next_btn.get("href"):
+            next_url = urljoin(BASE_URL, next_btn.get("href"))
+            page_number += 1
+            soup = get_soup(next_url)
+            if not soup:
+                break
         else:
-            urls = extract_products_from_category(cat["url"])
-            for url in urls:
-                try:
-                    pdata = extract_product_data(url)
-                    if pdata:
-                        all_products.append(pdata)
-                except Exception as e:
-                    logprint(f"Kunde inte extrahera produkt: {url} ({e})")
-    logprint(f"Totalt antal produkter extraherade: {len(all_products)}")
-    return all_products
+            next_page = False
+    return product_urls
 
 # ========================
 # 6. XLSX Exporter
@@ -353,7 +372,6 @@ def pastel_color_for_category(category):
         "Begagnade containrar":"FFD7CCC8", # Pastel Brown
         "Flytt & förvaringsservice":"FFFFF9C4", # Light Yellow
         "Transporter":        "FFE0F7FA", # Pastel Blue
-        # Deep subcategories for Table.se
         "Bord":               "FFE3F2FD",
         "Stolar":             "FFE0F7FA",
         "Soffor & fåtöljer":  "FFF8BBD0",
@@ -375,21 +393,18 @@ def export_to_xlsx(data, base_name="table_produkter"):
     if not data:
         print("Ingen data att exportera till XLSX.")
         return None
-    from datetime import datetime
     filename = f"{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     wb = Workbook()
     ws = wb.active
     ws.title = "Produkter"
 
     headers = list(data[0].keys())
-    # Insert Category, Subcategory, Sub-Subcategory at front if not already present
     for col in ["Category", "Subcategory", "Sub-Subcategory"]:
         if col not in headers and any(col in row for row in data):
             headers = [col] + headers
 
     ws.append(headers)
 
-    # Header style: Material dark, bold, white text
     for col in range(1, len(headers) + 1):
         cell = ws.cell(row=1, column=col)
         cell.font = Font(bold=True, color="FFFFFFFF")
@@ -397,14 +412,11 @@ def export_to_xlsx(data, base_name="table_produkter"):
         cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.border = Border(bottom=Side(style="medium", color="FFB0BEC5"))
 
-    # Data rows: pastel color per category or subcategory
     for row in data:
         ws.append([row.get(h, "") for h in headers])
         row_idx = ws.max_row
-        # Prefer category, then subcategory, then fallback
         category = row.get("Category") or row.get("category") or ""
         subcategory = row.get("Subcategory") or row.get("subcategory") or ""
-        # Use subcategory color if present in palette, else category
         pastel_color = pastel_color_for_category(subcategory) if pastel_color_for_category(subcategory) != "FFF5F5F5" else pastel_color_for_category(category)
         for col_idx in range(1, len(headers) + 1):
             cell = ws.cell(row=row_idx, column=col_idx)
@@ -418,7 +430,6 @@ def export_to_xlsx(data, base_name="table_produkter"):
                 bottom=Side(style="thin", color="FFCFD8DC"),
             )
 
-    # Dynamically set column widths with padding
     for col in ws.columns:
         max_length = max(len(str(cell.value) or "") for cell in col)
         ws.column_dimensions[col[0].column_letter].width = max_length + 6
@@ -427,54 +438,70 @@ def export_to_xlsx(data, base_name="table_produkter"):
     print(f"Export till XLSX klar: {filename}")
     return filename
 
-# ========================
-# 7. Main function
-# ========================
-def main():
-    logprint("==== STARTAR TABLE.SE SUPER-SCRAPER (3 nivåer) ====")
-    products = scrape_all_products_deep()
-    xlsx_file = None
-    if products:
-        xlsx_file = export_to_xlsx(products)
-    logprint("==== KLAR! ====")
-    return xlsx_file
+def export_errors_to_xlsx(errors, base_name="table_produkter_errors"):
+    if not errors:
+        print("Inga valideringsfel att exportera.")
+        return None
+    filename = f"{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Produktfel"
+    ws.append(["Index", "Feltyp", "Produktinfo"])
+    for idx, err in enumerate(errors):
+        ws.append([
+            idx + 1,
+            err.get("error_type", str(err.get("type", ""))),
+            str(err.get("product", err))
+        ])
+    wb.save(filename)
+    print(f"Export av fel till XLSX klar: {filename}")
+    return filename
 
 # ========================
-# 8. Run and download
+# 7. Enhanced Main Entrypoint (Parallelized, Smart Scan, Separate Error XLSX)
 # ========================
-
-
-#xlsx_path = main()
-#
-#if xlsx_path:
-#    from google.colab import files
-#    files.download(xlsx_path)
-#    print(f"Din fil {xlsx_path} är redo för nedladdning!")
-#else:
-#    print("Ingen fil skapades.")
-
-if __name__ == "__main__":
-    # Import your original functions if not in this file
-    from table_se_scraper import (
-        extract_category_tree,
-        should_skip,
-        extract_product_data,
-        export_to_xlsx
-    )
-
-    # Run the enhanced workflow
-    xlsx_path = main_enhanced(
+def enhanced_main_with_scan_and_error_file():
+    all_products = main_enhanced(
         extract_category_tree_func=extract_category_tree,
         skip_func=should_skip,
         extract_func=extract_product_data,
-        export_func=export_to_xlsx,
-        max_workers=8  # Or however many threads you want
+        export_func=None,  # We'll export after scanning!
+        max_workers=8
     )
+    if not all_products:
+        logprint("Ingen data skrapades.")
+        return None, None
 
-    if xlsx_path:
-        # For Colab: download file
-        from google.colab import files
-        files.download(xlsx_path)
-        print(f"Din fil {xlsx_path} är redo för nedladdning!")
+    scanned_products, product_errors = smart_scan_products(all_products)
+    if product_errors:
+        logprint(f"Smart scanner hittade {len(product_errors)} felaktiga produkter. Se logg och felrapport för detaljer.")
+        error_xlsx = export_errors_to_xlsx(product_errors)
     else:
-        print("Ingen fil skapades.")
+        error_xlsx = None
+
+    xlsx_file = export_to_xlsx(scanned_products)
+    return xlsx_file, error_xlsx
+
+# ========================
+# 8. Run and download (Colab-friendly)
+# ========================
+if __name__ == "__main__":
+    xlsx_path, error_xlsx_path = enhanced_main_with_scan_and_error_file()
+    if xlsx_path:
+        print(f"Din fil {xlsx_path} är skapad.")
+        try:
+            from google.colab import files
+            files.download(xlsx_path)
+        except ImportError:
+            pass
+    if error_xlsx_path:
+        print(f"Felrapport {error_xlsx_path} är skapad.")
+        try:
+            from google.colab import files
+            files.download(error_xlsx_path)
+        except ImportError:
+            pass
+    if not xlsx_path:
+        print("Ingen produktfil skapades.")
+    if not error_xlsx_path:
+        print("Ingen felrapport skapades.")
