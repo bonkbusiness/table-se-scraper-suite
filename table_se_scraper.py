@@ -461,18 +461,19 @@ def export_errors_to_xlsx(errors, base_name="table_produkter_errors"):
 # 7. Enhanced Main Entrypoint (Parallelized, Smart Scan, Separate Error XLSX)
 # ========================
 def enhanced_main_with_scan_and_error_file():
-    all_products = main_enhanced(
+    # --- FIX: Use main_enhanced for scraping, but handle export here ---
+    products = main_enhanced(
         extract_category_tree_func=extract_category_tree,
         skip_func=should_skip,
         extract_func=extract_product_data,
-        export_func=None,  # We'll export after scanning!
+        export_func=lambda x: x,  # Return products directly
         max_workers=8
     )
-    if not all_products:
+    if not products:
         logprint("Ingen data skrapades.")
         return None, None
 
-    scanned_products, product_errors = smart_scan_products(all_products)
+    scanned_products, product_errors = smart_scan_products(products)
     if product_errors:
         logprint(f"Smart scanner hittade {len(product_errors)} felaktiga produkter. Se logg och felrapport för detaljer.")
         error_xlsx = export_errors_to_xlsx(product_errors)
