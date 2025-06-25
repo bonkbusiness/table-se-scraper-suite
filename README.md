@@ -67,6 +67,7 @@ A modular, robust, and production-ready scraper for [Table.se](https://www.table
 | `table_se_export_utils.py`          | Exports to Google Drive, Email, S3, Dropbox.                                                         |
 | `table_se_viz.py`                   | Live Streamlit dashboard (progress, logs, data preview).                                             |
 | `exclusions.py`                     | List or logic of product/category exclusions (e.g., skip certain brands, categories, etc.).          |
+| `product_cache.py`                  | **Efficient product-level caching**: prevents redundant re-scraping, accelerates repeated runs, and enables change detection by storing product data with a hash of the scraped HTML. |
 | `requirements.txt`                  | All required Python packages for easy setup.                                                         |
 
 ---
@@ -103,6 +104,21 @@ python table_se_scraper.py
 python table_se_viz.py
 ```
 - Opens a Streamlit app for live progress and logs.
+
+---
+
+### `product_cache.py` — Purpose & Usage
+
+- **Purpose:**  
+  Optimizes scraping by caching each product’s data (in JSON files) keyed by article number and a hash of the product page’s content. Only products with changed HTML are re-scraped.  
+- **How it works:**  
+  - `hash_content(content)`: Returns a SHA-256 hash of the product page HTML.
+  - `get_cached_product(artikelnummer, content_hash)`: Returns cached product data if the HTML hash matches; otherwise returns None (forces re-scrape).
+  - `update_cache(artikelnummer, data, content_hash)`: Saves product data and hash to the cache directory.
+- **Benefits:**  
+  - **Massive speedup** for repeated runs.
+  - **Change detection**: Only changed/updated products are re-scraped.
+  - **File-based:** Each product is cached as a small JSON file under `product_cache/`.
 
 ---
 
@@ -145,10 +161,11 @@ python table_se_viz.py
 2. **`setup_logging()`** (sets up all logging globally) →  
 3. **Scraper core** (`table_se_scraper.py`) fetches categories/products →  
 4. **Backend** (`table_se_scraper_backend_enhanced.py`) does parallel fetching, deduplication →  
-5. **Smart Scanner** (`table_se_smart_scanner.py`) validates/flags bad data and exports a separate error XLSX if needed →  
-6. **Exclusions** (`exclusions.py`) filters out unwanted data →  
-7. **Export Utils** (`table_se_export_utils.py`) send XLSX where you want →  
-8. **Logs everywhere**: All steps log events, warnings, errors, and successes.
+5. **Product Cache** (`product_cache.py`) prevents redundant re-scraping, speeds up repeated runs, and detects product changes. →  
+6. **Smart Scanner** (`table_se_smart_scanner.py`) validates/flags bad data and exports a separate error XLSX if needed →  
+7. **Exclusions** (`exclusions.py`) filters out unwanted data →  
+8. **Export Utils** (`table_se_export_utils.py`) send XLSX where you want →  
+9. **Logs everywhere**: All steps log events, warnings, errors, and successes.
 
 ---
 
