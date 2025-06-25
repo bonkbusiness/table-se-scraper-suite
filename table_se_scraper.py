@@ -42,7 +42,27 @@ def normalize_text(text):
     text = unicodedata.normalize('NFKD', text).encode('ascii','ignore').decode()
     return text.strip()
 
+def extract_only_numbers(text):
+    """Extract only digits from the input string."""
+    if not text:
+        return ""
+    return "".join(re.findall(r"\d+", text))
+
+def extract_only_number_value(text):
+    """Extracts only the number (integer or decimal) and removes negatives."""
+    if not text:
+        return ""
+    # Replace comma with dot
+    text = text.replace(",", ".")
+    # Find all positive numbers (integer or decimal, ignore negative sign)
+    matches = re.findall(r"\d+(?:\.\d+)?", text)
+    if matches:
+        # Join if there are multiple number groups (e.g., "1 299,00" or "1 299.00")
+        return "".join(matches)
+    return ""
+
 def parse_measurements(text):
+    """Parse measurements, mapping L/D/B/H to full Swedish names and cm, ignoring negatives."""
     result = {
         "Mått (text)": text,
         "Längd (värde)": "", "Längd (enhet)": "",
@@ -52,26 +72,48 @@ def parse_measurements(text):
     }
     if not text:
         return result
-    m3 = re.match(r"(\d+)[x×](\d+)[x×](\d+)\s*([a-zA-Z]+)", text)
-    if m3:
-        result["Längd (värde)"], result["Bredd (värde)"], result["Höjd (värde)"], enhet = m3.groups()
-        result["Längd (enhet)"] = result["Bredd (enhet)"] = result["Höjd (enhet)"] = enhet
-        return result
-    m_dia = re.match(r"[ØO]\s*\.?\s*(\d+)\s*([a-zA-Z]+)", text)
+    # Replace minus with nothing
+    clean_text = text.replace("-", "")
+    # Standardize cm
+    clean_text = re.sub(r"\bcentimeter\b", "cm", clean_text, flags=re.IGNORECASE)
+    # Replace L/D/B/H with full names (Swedish)
+    label_map = {"L": "Längd", "D": "Djup", "B": "Bredd", "H": "Höjd"}
+    # Pattern: (L|D|B|H) num [x ...] cm
+    parts = re.findall(r"([LDBH])\s*([0-9]+(?:[.,][0-9]+)?)", clean_text)
+    unit = "cm" if "cm" in clean_text else ""
+    for short, val in parts:
+        full = label_map.get(short)
+        if full:
+            result[f"{full} (värde)"] = re.sub(r"[^\d.]", "", val)
+            result[f"{full} (enhet)"] = unit
+    # Also handle Diameter
+    m_dia = re.match(r"[ØO]\s*\.?\s*(\d+(?:[.,]\d+)?)\s*([a-zA-Z]+)", clean_text)
     if m_dia:
         result["Diameter (värde)"], result["Diameter (enhet)"] = m_dia.groups()
-        return result
-    m_single = re.match(r"(Längd|Bredd|Höjd|Diameter)?\s*:?\.?\s*(\d+)\s*([a-zA-Z]+)", text, re.IGNORECASE)
-    if m_single:
-        label, value, enhet = m_single.groups()
-        if label:
-            label = label.capitalize()
-            result[f"{label} (värde)"] = value
-            result[f"{label} (enhet)"] = enhet
+        # Remove minus if present
+        result["Diameter (värde)"] = result["Diameter (värde)"].replace("-", "")
+    # Fallback to old patterns if needed
+    if not any(result[f"{label} (värde)"] for label in ["Längd", "Djup", "Bredd", "Höjd", "Diameter"]):
+        # Try old logic as fallback
+        m3 = re.match(r"(\d+)[x×](\d+)[x×](\d+)\s*([a-zA-Z]+)", clean_text)
+        if m3:
+            result["Längd (värde)"], result["Bredd (värde)"], result["Höjd (värde)"], enhet = m3.groups()
+            result["Längd (enhet)"] = result["Bredd (enhet)"] = result["Höjd (enhet)"] = enhet
         else:
-            result["Längd (värde)"] = value
-            result["Längd (enhet)"] = enhet
-        return result
+            m_single = re.match(r"(Längd|Bredd|Höjd|Diameter|Djup)?\s*:?\.?\s*(\d+)\s*([a-zA-Z]+)", clean_text, re.IGNORECASE)
+            if m_single:
+                label, value, enhet = m_single.groups()
+                if label:
+                    label = label.capitalize()
+                    result[f"{label} (värde)"] = value
+                    result[f"{label} (enhet)"] = enhet
+                else:
+                    result["Längd (värde)"] = value
+                    result["Längd (enhet)"] = enhet
+    # Remove negatives if any (should be already handled)
+    for key in result:
+        if "värde" in key and result[key]:
+            result[key] = result[key].replace("-", "")
     return result
 
 def parse_value_unit(text):
@@ -189,6 +231,8 @@ def extract_product_data(product_url):
         strong = short_desc.find("strong")
         if strong:
             artikelnummer = strong.get_text(strip=True)
+    # PATCH: Artikelnummer only numbers
+    artikelnummer = extract_only_numbers(artikelnummer)
 
     # Hash the relevant HTML for change detection
     content_hash = hash_content(soup.prettify())
@@ -215,21 +259,19 @@ def extract_product_data(product_url):
     pris_inkl_elem = soup.select_one(".product_price_in")
     pris_inkl = (
         pris_inkl_elem.get_text(strip=True)
-        .replace("kr", "")
-        .replace(" ", "")
-        .replace(",", ".")
         if pris_inkl_elem else ""
     )
+    # PATCH: Pris inkl. moms only numbers
+    pris_inkl = extract_only_number_value(pris_inkl)
 
     # Pris exkl. moms: .product_price_ex
     pris_exkl_elem = soup.select_one(".product_price_ex")
     pris_exkl = (
         pris_exkl_elem.get_text(strip=True)
-        .replace("kr", "")
-        .replace(" ", "")
-        .replace(",", ".")
         if pris_exkl_elem else ""
     )
+    # PATCH: Pris exkl. moms only numbers
+    pris_exkl = extract_only_number_value(pris_exkl)
 
     # Produktbild-URL: as before
     produktbild_url = ""
@@ -271,7 +313,7 @@ def extract_product_data(product_url):
     kapacitet_text = info_dict.get('Kapacitet', '')
     volym_text = info_dict.get('Volym', '')
 
-    # Parse measurements and units if available
+    # PATCH: Parse measurements with new logic (L->Längd, etc., no negatives, cm normalization)
     mått_dict = parse_measurements(matt_text)
     diameter_v, diameter_e = parse_value_unit(diameter_text)
     if not diameter_v and mått_dict.get("Diameter (värde)"):
