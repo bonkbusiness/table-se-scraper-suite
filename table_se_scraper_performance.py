@@ -13,14 +13,58 @@ import time
 import logging
 from functools import wraps
 import random
+import sys
+
+class FancyFormatter(logging.Formatter):
+    ICONS = {
+        logging.DEBUG: "🐞",
+        logging.INFO: "📝",
+        logging.WARNING: "😬",
+        logging.ERROR: "💥",
+        logging.CRITICAL: "🔥"
+    }
+    COLORS = {
+        logging.DEBUG: "\033[36m",      # Cyan
+        logging.INFO: "\033[32m",       # Green
+        logging.WARNING: "\033[33m",    # Yellow
+        logging.ERROR: "\033[31m",      # Red
+        logging.CRITICAL: "\033[1;41m"  # Bold + Red BG
+    }
+    RESET = "\033[0m"
+
+    def format(self, record):
+        icon = self.ICONS.get(record.levelno, "")
+        color = self.COLORS.get(record.levelno, "")
+        # Including module and line number
+        msg = super().format(record)
+        return f"{color}{icon} {msg}{self.RESET}"
 
 def setup_logging(logfile="scraper.log"):
-    logging.basicConfig(
-        filename=logfile,
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s: %(message)s",
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+
+    # Remove all handlers (avoid duplicates if setup_logging is called multiple times)
+    logger.handlers = []
+
+    # File handler - plain but rich with context
+    file_formatter = logging.Formatter(
+        "%(asctime)s %(levelname)s [%(module)s:%(lineno)d]: %(message)s", datefmt="%H:%M:%S"
     )
-    print(f"Logging set up to {logfile}")
+    fh = logging.FileHandler(logfile)
+    fh.setFormatter(file_formatter)
+    fh.setLevel(logging.DEBUG)
+    logger.addHandler(fh)
+
+    # Console handler - color + icon + context
+    console_formatter = FancyFormatter(
+        "%(asctime)s %(levelname)s [%(module)s:%(lineno)d]: %(message)s", datefmt="%H:%M:%S"
+    )
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setFormatter(console_formatter)
+    ch.setLevel(logging.DEBUG)
+    logger.addHandler(ch)
+
+    print(f"Logging set up to {logfile} (file, plain) and console (color, icons)")
 
 def robust_scrape(scrape_func, url, retries=3, delay=2, backoff=2, proxies=None):
     """
