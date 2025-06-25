@@ -4,6 +4,33 @@ A modular, robust, and production-ready scraper for [Table.se](https://www.table
 
 ---
 
+## 🔄 **Changelog**
+
+### [v15] 2025-06-25
+- Main script now outputs **two XLSX files**: one for products, one for validation errors (if any).
+- Improved error reporting for Colab and desktop environments.
+
+### [v14] 2025-06-25
+- Smart scanner (`smart_scan_products`) now runs after scraping.
+- Detected anomalies are exported to a dedicated error XLSX.
+
+### [v13] 2025-06-24
+- Switched to `main_enhanced` backend for parallelized scraping.
+
+### [v12] 2025-06-24
+- Improved import order, added Colab install instructions, further modularization.
+
+### [v11] 2025-06-23
+- All direct `logging.basicConfig` removed; all scripts use `setup_logging()`.
+
+### [v10] 2025-06-23
+- Introduced centralized logging setup in `table_se_scraper_performance.py`.
+
+### [v9] 2025-06-22
+- Initial stable, modular release with product/category exclusion, caching, and XLSX export.
+
+---
+
 ## ✨ **What’s New?**
 
 - **Supercharged Logging**:  
@@ -15,6 +42,8 @@ A modular, robust, and production-ready scraper for [Table.se](https://www.table
   - Backend now supports robust, multi-threaded scraping for speed and reliability.
 - **Smart Data Validation**:  
   - `table_se_smart_scanner.py` checks all products for missing or suspicious data, price outliers, etc.
+- **Separate Error Exports**:  
+  - Validation errors/anomalies are now exported into a dedicated XLSX file.
 - **Exclusions Handling**:  
   - `exclusions.py` allows you to define product/category exclusions, or other filtering logic.
 - **Highly Modular**:  
@@ -31,7 +60,7 @@ A modular, robust, and production-ready scraper for [Table.se](https://www.table
 | File                                | Purpose/Description                                                                                   |
 |--------------------------------------|------------------------------------------------------------------------------------------------------|
 | `table_se_cli.py`                   | Interactive CLI to run the scraper and choose export destinations.                                   |
-| `table_se_scraper.py`               | Main scraping logic: categories, products, export to XLSX. Calls logging and backend enhancements.   |
+| `table_se_scraper.py`               | Main scraping logic: categories, products, export to XLSX, logging, backend enhancements, smart scan, and error export.   |
 | `table_se_scraper_performance.py`   | Logging setup (`setup_logging()`), retry wrappers, polite delays, proxy support.                     |
 | `table_se_smart_scanner.py`         | Validates scraped data for missing/suspect fields, outliers, SKU/image checks.                       |
 | `table_se_scraper_backend_enhanced.py` | Fast, threaded scraping, deduplication, completeness checks before export.                        |
@@ -39,24 +68,6 @@ A modular, robust, and production-ready scraper for [Table.se](https://www.table
 | `table_se_viz.py`                   | Live Streamlit dashboard (progress, logs, data preview).                                             |
 | `exclusions.py`                     | List or logic of product/category exclusions (e.g., skip certain brands, categories, etc.).          |
 | `requirements.txt`                  | All required Python packages for easy setup.                                                         |
-
----
-
-## 🖥️ **Screenshots**
-
-> *(Replace these with actual screenshots from your runs!)*
-
-### Interactive CLI
-![CLI screenshot](screenshots/cli.png)
-
-### Colorful Logs in Terminal
-![Logs screenshot](screenshots/logs.png)
-
-### Smart Data Scanner Output
-![Scanner screenshot](screenshots/scanner.png)
-
-### Streamlit Dashboard
-![Dashboard screenshot](screenshots/dashboard.png)
 
 ---
 
@@ -120,7 +131,7 @@ python table_se_viz.py
 - **Add/Change Exclusions:**  
   Edit `exclusions.py` to skip certain brands, categories, or products.
 - **Export to New Destinations:**  
-  Add a function to `table_se_export_utils.py` and call from `table_se_cli.py`.
+  Add a function to `table_se_export_utils.py` and call from the CLI or your script.
 - **Batch/CI runs:**  
   Script your runs, and use the log file for monitoring or debugging.
 - **Notebook Use:**  
@@ -134,7 +145,7 @@ python table_se_viz.py
 2. **`setup_logging()`** (sets up all logging globally) →  
 3. **Scraper core** (`table_se_scraper.py`) fetches categories/products →  
 4. **Backend** (`table_se_scraper_backend_enhanced.py`) does parallel fetching, deduplication →  
-5. **Smart Scanner** (`table_se_smart_scanner.py`) validates/flags bad data →  
+5. **Smart Scanner** (`table_se_smart_scanner.py`) validates/flags bad data and exports a separate error XLSX if needed →  
 6. **Exclusions** (`exclusions.py`) filters out unwanted data →  
 7. **Export Utils** (`table_se_export_utils.py`) send XLSX where you want →  
 8. **Logs everywhere**: All steps log events, warnings, errors, and successes.
