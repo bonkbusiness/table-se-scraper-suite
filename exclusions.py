@@ -25,4 +25,10 @@ EXCLUDED_PRODUCTS = [
     # "Exakt produktnamn",
     # "12345",
     # "/produkt/url-del/",
+    "https://www.table.se/produkter/container/self-storage/transporter/"
+    "https://www.table.se/produkter/container/self-storage/"
+    "https://www.table.se/produkter/container/kopa-container/"
+    "https://www.table.se/produkter/container/hyra-container/"
+    "https://www.table.se/produkter/teknik/"
+    "https://www.table.se/produkter/talt/"
 ]
