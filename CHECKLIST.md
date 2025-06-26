@@ -6,6 +6,47 @@
   - [ ] Fully traverse all category levels (main, sub, sub-sub) on table.se
   - [ ] Exclude categories based on `exclusions.py` logic
   - [ ] Unit tests for category extraction
+        
+📌 Step 1: Category Extraction
+A. Functional Requirements
+
+    Full Traversal: Script must crawl all category, subcategory, and sub-subcategory pages on table.se.
+    Exclusion Logic: Must skip categories based on rules in exclusions.py (i.e., URLs or names to avoid).
+    Unit Testing: Extraction logic should be independently testable for correctness and exclusion.
+
+B. What’s Already In-Place?
+
+You already have (from table_se_scraper_backend_enhanced.py):
+
+    extract_category_tree()
+    build_category_node(name, url, seen)
+    prune_excluded_nodes(node)
+    Use of exclusions via is_excluded()
+
+These are modular and mostly ready for scraper/category.py!
+C. What Is Still Needed?
+
+    Polish & Refactor: Move/clean code into scraper/category.py.
+    Unit Tests: In tests/test_category.py (or similar)
+        Test: full tree, structure, exclusions, edge-cases (empty/404/redirects).
+    Docs: Docstrings for all public functions.
+
+D. Next Steps
+
+    Move/Refactor category extraction to scraper/category.py
+        Ensure all exclusion and recursion logic is included.
+        Clean up interface (inputs/outputs).
+
+    Draft Unit Tests:
+        Use a mock/fake HTML for categories and is_excluded logic.
+        Test for:
+            All nodes found
+            Exclusions respected
+            Correct tree structure
+
+    Docstrings & Comments:
+        Make all major functions self-explanatory.
+
 
 - [ ] **Product URL Extraction**
   - [ ] Correctly extract all product URLs from every (sub)category, including pagination
