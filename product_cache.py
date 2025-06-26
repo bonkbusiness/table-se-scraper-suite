@@ -54,9 +54,10 @@ def get_cached_product(sku, content_hash=None):
     return None
 
 def update_cache(sku, data, content_hash):
-    """
-    Update or add a product in the cache and write it to disk.
-    """
+    if not sku:
+        print("Warning: Tried to cache a product with empty SKU!")
+        return
     cache = load_cache()
     cache[sku] = {"hash": content_hash, "data": data}
+    print(f"Updating cache for SKU: {sku}")  # Add this
     save_cache(cache)
