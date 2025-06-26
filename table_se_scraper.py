@@ -481,4 +481,3 @@ if __name__ == "__main__":
         print("Ingen produktfil skapades.")
     if not error_xlsx_path:
         print("Ingen felrapport skapades.")
-
