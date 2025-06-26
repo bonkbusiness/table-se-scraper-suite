@@ -5,16 +5,25 @@ from urllib.parse import urljoin, urlparse
 BASE_URL = "https://www.table.se"
 
 def build_category_tree():
-    resp = get_soup(BASE_URL + "/produkter/")
+    """
+    Build the full category tree, then prune after.
+    Returns a list of main category nodes, each with nested subcategories.
+    """
+    soup = get_soup(BASE_URL + "/produkter/")
+    if not soup:
+        print("Failed to load main category page.")
+        return []
+
     seen = set()
     main_categories = []
 
-    for a in resp.find_all("a", href=True):
+    for a in soup.find_all("a", href=True):
         href = a['href']
         url = urljoin(BASE_URL, href)
         if url in seen:
             continue
         parsed = urlparse(href)
+        # Only include direct children of /produkter/
         if parsed.path.startswith("/produkter/") and not "/page/" in parsed.path and not "/nyheter/" in parsed.path:
             path_parts = [p for p in parsed.path.split("/") if p]
             if len(path_parts) == 2 or (len(path_parts) == 3 and path_parts[2] == ""):
@@ -24,10 +33,14 @@ def build_category_tree():
                     main_categories.append({"name": catname, "url": url})
 
     tree = [build_node(cat['name'], cat['url'], seen) for cat in main_categories]
-    tree = [prune_excluded_nodes(node) for node in tree if prune_excluded_nodes(node)]
-    return tree
+    # Prune excluded nodes after full tree is built
+    pruned_tree = [prune_excluded_nodes(node) for node in tree if prune_excluded_nodes(node)]
+    return pruned_tree
 
 def build_node(name, url, seen):
+    """
+    Recursively build a category node and its subcategories, using the global seen set.
+    """
     if url in seen:
         return None
     seen.add(url)
@@ -43,6 +56,7 @@ def build_node(name, url, seen):
             continue
         parsed = urlparse(href)
         path_parts = [p for p in parsed.path.split("/") if p]
+        # Heuristic: subcategory if path is one level deeper
         if parsed.path.startswith("/produkter/") and len(path_parts) > 2 and name.lower() not in ("hem",):
             subcat_name = a.get_text(strip=True)
             if subcat_name and subcat_name != "HEM":
@@ -53,6 +67,10 @@ def build_node(name, url, seen):
     return node
 
 def prune_excluded_nodes(node):
+    """
+    Recursively prune nodes whose URL matches an exclusion.
+    Keeps parents, but removes excluded children.
+    """
     if is_excluded(node["url"]):
         print(f"Pruned excluded node: {node['url']}")
         return None
