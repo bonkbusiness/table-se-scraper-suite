@@ -1,12 +1,12 @@
 from exclusions import is_excluded
-from .utils import logprint
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import requests
 
 BASE_URL = "https://www.table.se"
 
-def build_category_tree():
+def extract_category_tree():
+    """Build the full category tree, then prune after."""
     resp = requests.get(BASE_URL + "/produkter/")
     soup = BeautifulSoup(resp.text, "html.parser")
     seen = set()
@@ -26,7 +26,6 @@ def build_category_tree():
                     seen.add(url)
                     main_categories.append({"name": catname, "url": url})
 
-    logprint(f"Found {len(main_categories)} main categories")
     tree = []
     for cat in main_categories:
         node = build_category_node(cat["name"], cat["url"], seen)
@@ -62,7 +61,7 @@ def build_category_node(name, url, seen):
 
 def prune_excluded_nodes(node):
     if is_excluded(node["url"]):
-        logprint(f"Pruned excluded node: {node['url']}")
+        print(f"Pruned excluded node: {node['url']}")
         return None
     if "subs" in node:
         pruned_subs = []
