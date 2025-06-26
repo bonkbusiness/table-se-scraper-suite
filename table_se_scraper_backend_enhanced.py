@@ -9,6 +9,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 from typing import Any, Dict, List, Optional
 import logging
+import os
+import traceback
 
 from bs4 import BeautifulSoup
 
@@ -19,7 +21,8 @@ logger = logging.getLogger("table_scraper_enhanced")
 handler = logging.StreamHandler()
 formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
 handler.setFormatter(formatter)
-logger.addHandler(handler)
+if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+    logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
 def logprint(msg: str):
@@ -272,29 +275,69 @@ def export_with_completeness_check(products, export_func, **export_kwargs):
     return export_func(products, **export_kwargs)
 
 # =======================================
-# 10. Example: Main Enhanced Workflow
+# 10. Upgraded Main Enhanced Workflow with Fallback and Traceback Logging
 # =======================================
 def main_enhanced(
     extract_category_tree_func,
     skip_func,
     extract_func,
     export_func,
-    max_workers=8
+    max_workers=8,
+    fallback_export_func=None
 ):
     """
-    Enhanced workflow:
+    Enhanced workflow with export fallback and traceback logging:
     - category tree extraction
     - parallelized deep scrape
     - deduplication and completeness check
-    - export
+    - export with fallback and full traceback logging on error
+
+    Parameters:
+        extract_category_tree_func: function to fetch category tree
+        skip_func: function to filter categories
+        extract_func: function to fetch product data
+        export_func: main export function (e.g., export_to_xlsx)
+        max_workers: level of parallelism
+        fallback_export_func: optional fallback export function (e.g., backup_export_to_csv)
+    Returns:
+        (exported_file, fallback_used, error_traceback)
     """
     logprint("==== STARTAR ENHANCED TABLE.SE SCRAPER ====")
-    tree = extract_category_tree_func()
-    products = scrape_all_products_deep_enhanced(
-        tree, skip_func, extract_func, max_workers=max_workers
-    )
-    xlsx_file = export_with_completeness_check(products, export_func)
-    logprint("==== KLAR! ====")
-    return xlsx_file
+    error_traceback = None
+    fallback_used = False
+    exported_file = None
+    try:
+        tree = extract_category_tree_func()
+        products = scrape_all_products_deep_enhanced(
+            tree, skip_func, extract_func, max_workers=max_workers
+        )
+        exported_file = export_with_completeness_check(products, export_func)
+        logprint("==== KLAR! ====")
+        return exported_file, fallback_used, error_traceback
+    except Exception as e:
+        tb = traceback.format_exc()
+        logger.error(f"Export or scraping failed: {e}\nFull traceback:\n{tb}")
+        error_traceback = tb
+        # Fallback export if provided
+        if fallback_export_func is not None:
+            try:
+                logprint("Försöker fallback-export...")
+                # Use the products, if available, else fail
+                # If scrape failed, cannot fallback
+                if 'products' in locals() and products:
+                    exported_file = fallback_export_func(products)
+                    fallback_used = True
+                    if exported_file:
+                        logprint(f"Fallback-export lyckades: {exported_file}")
+                    else:
+                        logprint("Fallback-export misslyckades.")
+                else:
+                    logprint("Fallback-export kunde inte göras: ingen produktdata.")
+            except Exception as fb_e:
+                fb_tb = traceback.format_exc()
+                logger.error(f"Fallback export failed: {fb_e}\nFull traceback:\n{fb_tb}")
+                error_traceback += "\n\nFallback export failed:\n" + fb_tb
+        logprint("==== AVSLUTAD MED FEL ====")
+        return exported_file, fallback_used, error_traceback
 
 # =========== End of Enhanced Backend ===========
