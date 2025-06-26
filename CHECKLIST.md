@@ -38,8 +38,8 @@
   - [ ] Only unique product URLs in the final result
   - [ ] Exclude products/categories via `is_excluded()`
 - [ ] Modular, testable, and clean interface
-  - [ ] Functions in `scraper/product_url.py`
-  - [ ] Unit tests in `tests/test_product_url.py`
+  - [ ] Functions in `scraper/product.py`
+  - [ ] Unit tests in `tests/test_product.py`
   - [ ] Comprehensive docstrings
 
 ---
