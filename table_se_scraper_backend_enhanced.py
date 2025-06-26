@@ -14,6 +14,12 @@ import traceback
 
 from bs4 import BeautifulSoup
 
+def should_skip_url(url):
+    for prefix in EXCLUDED_URL_PREFIXES:
+        if url.startswith(prefix):
+            return True
+    return False
+
 # ================
 # 1. Logging Setup
 # ================
