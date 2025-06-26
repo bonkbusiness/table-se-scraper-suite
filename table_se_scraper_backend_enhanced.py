@@ -12,7 +12,10 @@ import logging
 import os
 import traceback
 
+from urllib.parse import urljoin
 from bs4 import BeautifulSoup
+
+BASE_URL = "https://www.table.se"  # Or whatever the correct base URL is for the site you are scraping
 
 def should_skip_url(url):
     for prefix in EXCLUDED_URL_PREFIXES:
