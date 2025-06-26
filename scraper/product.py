@@ -1,11 +1,42 @@
+"""
+Product scraping module for table.se
+
+This module provides functions to extract product URLs from all category pages (with pagination),
+and to scrape detailed product data from individual product pages. It is designed for the specific
+structure of table.se, as of 2024, and integrates with the main scraper suite's caching and exclusion logic.
+
+Functions:
+    - extract_products_from_category: Get all product URLs from a category (handles pagination).
+    - extract_all_product_urls: Traverse a category tree and return all unique product URLs.
+    - scrape_product: Extract all relevant fields from a table.se product page into a dictionary.
+"""
+
 from .utils import extract_only_number_value, parse_value_unit, parse_measurements, extract_only_numbers
 from .cache import get_cached_product, update_cache, hash_content
 from exclusions import is_excluded
 from bs4 import BeautifulSoup
 import requests
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse, parse_qs, urlencode, urlunparse
 
 BASE_URL = "https://www.table.se"
+
+def _build_paged_url(base_url, page_num):
+    """Helper to build a paged URL."""
+    if page_num == 1:
+        return base_url
+    parsed = urlparse(base_url)
+    qs = parse_qs(parsed.query)
+    qs['page'] = [str(page_num)]
+    new_query = urlencode(qs, doseq=True)
+    return urlunparse(parsed._replace(query=new_query))
+
+def _extract_product_links(soup):
+    """Return set of product URLs from soup."""
+    return {
+        urljoin(BASE_URL, a.get("href"))
+        for a in soup.find_all("a", href=True)
+        if "woocommerce-LoopProduct-link" in (a.get("class") or [])
+    }
 
 def extract_products_from_category(category_url):
     """
@@ -13,104 +44,107 @@ def extract_products_from_category(category_url):
     """
     product_urls = set()
     page = 1
+    seen_pages = set()
     while True:
-        if page == 1:
-            url = category_url
-        else:
-            # Table.se may use ?page=2 or /page/2/; adjust as needed
-            url = f"{category_url.rstrip('/')}/page/{page}/"
+        url = _build_paged_url(category_url, page)
+        if url in seen_pages:
+            break
+        seen_pages.add(url)
+
         resp = requests.get(url)
         if not resp.ok:
             break
         soup = BeautifulSoup(resp.text, "html.parser")
-        # Adjust these selectors if Table.se changes their HTML!
-        # Typical selectors for WooCommerce/WordPress shops:
-        for a in soup.select(".product a.woocommerce-LoopProduct-link, .products .product a"):
-            href = a.get("href")
-            if href:
-                product_urls.add(urljoin(BASE_URL, href))
-        # Check for "next page" button or pagination
-        next_btn = soup.select_one(".page-numbers .next, a.next")
-        if next_btn and next_btn.get("href"):
-            page += 1
-        else:
+        links = _extract_product_links(soup)
+        filtered_links = {u for u in links if not is_excluded(u)}
+        product_urls.update(filtered_links)
+
+        if not links:
             break
+        page += 1
     return list(product_urls)
 
+def extract_all_product_urls(category_tree):
+    """
+    Traverse the full category tree and extract all unique product URLs.
+    """
+    product_urls = set()
+    def traverse(node):
+        product_urls.update(extract_products_from_category(node["url"]))
+        for sub in node.get("subs", []):
+            traverse(sub)
+    for node in category_tree:
+        traverse(node)
+    return product_urls
+
+def _get_text_or_empty(soup, selector):
+    el = soup.select_one(selector)
+    return el.get_text(strip=True) if el else ""
+
+def _parse_more_info(more_info):
+    info_dict = {}
+    if not more_info:
+        return info_dict
+    for p in more_info.find_all('p'):
+        text = ''.join([elem if isinstance(elem, str) else elem.get_text() for elem in p.contents]).strip()
+        if not text:
+            continue
+        if text.upper().startswith("MÅTT:"):
+            value = text.replace("MÅTT:", "").strip()
+            br_split = [t.strip() for t in text.split("<br />") if t.strip()]
+            if len(br_split) > 1:
+                value = " ".join(br_split[1:])
+            info_dict["Mått (text)"] = value
+        elif ":" in text:
+            label, value = text.split(":", 1)
+            info_dict[label.strip().capitalize()] = value.strip()
+    return info_dict
+
 def scrape_product(product_url):
+    """
+    Scrape all relevant product data fields from a table.se product page.
+    """
     if is_excluded(product_url):
         return None
-    soup = BeautifulSoup(requests.get(product_url).text, "html.parser")
+    resp = requests.get(product_url)
+    if not resp.ok:
+        return None
+    soup = BeautifulSoup(resp.text, "html.parser")
     if not soup:
         return None
-    short_desc = soup.select_one(".woocommerce-product-details__short-description")
-    artikelnummer = ""
-    if short_desc:
-        strong = short_desc.find("strong")
-        if strong:
-            artikelnummer = strong.get_text(strip=True)
-    artikelnummer = extract_only_numbers(artikelnummer)
+
+    namn = _get_text_or_empty(soup, ".edgtf-single-product-title")
+    artikelnummer = extract_only_numbers(_get_text_or_empty(soup, ".woocommerce-product-details__short-description strong"))
+    pris_inkl = extract_only_number_value(_get_text_or_empty(soup, ".product_price_in"))
+    pris_exkl = extract_only_number_value(_get_text_or_empty(soup, ".product_price_ex"))
+
+    img = soup.select_one(".woocommerce-product-gallery__image img")
+    produktbild_url = img.get("src") if img and img.get("src") else ""
+
+    beskrivning = _get_text_or_empty(soup, "#tab-description .product_description_text p")
+
+    more_info = soup.select_one('.product_more_info.vc_col-md-6')
+    info_dict = _parse_more_info(more_info)
+
+    farg = info_dict.get('Färg', '')
+    material = info_dict.get('Material', '')
+    serie = info_dict.get('Serie', '')
+    matt_text = info_dict.get('Mått (text)', '')
+
+    mått_dict = parse_measurements(matt_text) if matt_text else {}
+    diameter_v, diameter_e = parse_value_unit(info_dict.get('Diameter', ''))
+    kap_v, kap_e = parse_value_unit(info_dict.get('Kapacitet', ''))
+    vol_v, vol_e = parse_value_unit(info_dict.get('Volym', ''))
+    längd_v, längd_e = mått_dict.get("Längd (värde)"), mått_dict.get("Längd (enhet)")
+    bredd_v, bredd_e = mått_dict.get("Bredd (värde)"), mått_dict.get("Bredd (enhet)")
+    höjd_v, höjd_e = mått_dict.get("Höjd (värde)"), mått_dict.get("Höjd (enhet)")
+    djup_v, djup_e = mått_dict.get("Djup (värde)"), mått_dict.get("Djup (enhet)")
+
     content_hash = hash_content(soup.prettify())
     cached = get_cached_product(artikelnummer, content_hash)
     if cached:
         return cached
-    namn = ""
-    selectors = [
-        "h1.edgtf-single-product-title[itemprop='name']",
-        "h1.product_title"
-    ]
-    for sel in selectors:
-        el = soup.select_one(sel)
-        if el:
-            namn = el.get_text(strip=True)
-            break
-    pris_inkl_elem = soup.select_one(".product_price_in")
-    pris_inkl = pris_inkl_elem.get_text(strip=True) if pris_inkl_elem else ""
-    pris_inkl = extract_only_number_value(pris_inkl)
-    pris_exkl_elem = soup.select_one(".product_price_ex")
-    pris_exkl = pris_exkl_elem.get_text(strip=True) if pris_exkl_elem else ""
-    pris_exkl = extract_only_number_value(pris_exkl)
-    produktbild_url = ""
-    img = soup.select_one(".woocommerce-product-gallery__image img")
-    if img and img.get("src"):
-        produktbild_url = img.get("src")
-    more_info = soup.select_one('.product_more_info.vc_col-md-6')
-    info_dict = {}
-    if more_info:
-        for p in more_info.find_all('p'):
-            text = ''.join([elem if isinstance(elem, str) else elem.get_text() for elem in p.contents])
-            for line in text.split('\n'):
-                line = line.strip()
-                if not line or ':' not in line:
-                    continue
-                label, value = line.split(':', 1)
-                label = label.strip().capitalize()
-                value = value.strip()
-                info_dict[label] = value
-    farg = info_dict.get('Färg', '')
-    material = info_dict.get('Material', '')
-    serie = info_dict.get('Serie', '')
-    matt_text = info_dict.get('Mått', '') or info_dict.get('Mått (text)', '')
-    diameter_text = info_dict.get('Diameter', '')
-    kapacitet_text = info_dict.get('Kapacitet', '')
-    volym_text = info_dict.get('Volym', '')
-    djup_text = info_dict.get('Djup', '') or info_dict.get('D', '')
-    mått_dict = parse_measurements(matt_text)
-    diameter_v, diameter_e = parse_value_unit(diameter_text)
-    if not diameter_v and mått_dict.get("Diameter (värde)"):
-        diameter_v = mått_dict.get("Diameter (värde)")
-        diameter_e = mått_dict.get("Diameter (enhet)")
-    kap_v, kap_e = parse_value_unit(kapacitet_text)
-    vol_v, vol_e = parse_value_unit(volym_text)
-    längd_v, längd_e = mått_dict.get("Längd (värde)"), mått_dict.get("Längd (enhet)")
-    bredd_v, bredd_e = mått_dict.get("Bredd (värde)"), mått_dict.get("Bredd (enhet)")
-    höjd_v, höjd_e = mått_dict.get("Höjd (värde)"), mått_dict.get("Höjd (enhet)")
-    djup_v, djup_e = "", ""
-    if djup_text:
-        djup_v, djup_e = parse_value_unit(djup_text)
-    if not djup_v and mått_dict.get("Djup (värde)"):
-        djup_v = mått_dict.get("Djup (värde)")
-        djup_e = mått_dict.get("Djup (enhet)")
+
     data = {
         "Namn": namn,
         "Artikelnummer": artikelnummer,
@@ -121,7 +155,7 @@ def scrape_product(product_url):
         "Pris exkl. moms (enhet)": "kr" if pris_exkl else "",
         "Pris inkl. moms (värde)": pris_inkl,
         "Pris inkl. moms (enhet)": "kr" if pris_inkl else "",
-        "Mått (text)": mått_dict.get("Mått (text)", matt_text),
+        "Mått (text)": matt_text,
         "Längd (värde)": längd_v,
         "Längd (enhet)": längd_e,
         "Bredd (värde)": bredd_v,
@@ -137,7 +171,8 @@ def scrape_product(product_url):
         "Volym (värde)": vol_v,
         "Volym (enhet)": vol_e,
         "Produktbild-URL": produktbild_url,
-        "Produkt-URL": product_url
+        "Produkt-URL": product_url,
+        "Beskrivning": beskrivning
     }
     update_cache(artikelnummer, data, content_hash)
     return data
