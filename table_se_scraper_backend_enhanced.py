@@ -12,7 +12,6 @@ from typing import Any, Dict, List, Optional
 import logging
 import os
 import traceback
-# ... rest of your imports ...
 
 # 3rd-party libraries
 import requests
@@ -27,6 +26,7 @@ BASE_URL = "https://www.table.se"  # Or whatever the correct base URL is for the
 def should_skip_url(url):
     for prefix in EXCLUDED_URL_PREFIXES:
         if url.startswith(prefix):
+            print(f"Excluding URL due to prefix: {prefix} -> {url}")
             return True
     return False
 
@@ -64,7 +64,6 @@ def parallel_map(func, iterable, max_workers=8, desc="Working..."):
                 logger.warning(f"Exception in parallel_map: {e}")
     return results
 
-
 def get_soup_with_retries(url: str, throttle: float = 0.7, max_retries: int = 3) -> Optional[BeautifulSoup]:
     """
     Like get_soup, but with built-in retries and request throttling.
@@ -90,68 +89,45 @@ get_soup = get_soup_with_retries
 # 2a. Category extraction (3 levels deep)
 # ========================
 
-def should_skip_url(url):
-    for prefix in EXCLUDED_URL_PREFIXES:
-        if url.startswith(prefix):
-            print(f"Excluding URL due to prefix: {prefix} -> {url}")
-            return True
-    return False
-
-# Example improved traversal function:
-def traverse(node, path, seen=None):
-    if seen is None:
-        seen = set()
-    name = node["name"]
-    url = node["url"]
-    if url in seen:
-        return  # Avoid infinite revisit
-    seen.add(url)
-    if should_skip_url(url):
-        return  # Prune branch!
-    new_path = path + [name]
-    if node.get("subs"):
-        for sub in node["subs"]:
-            traverse(sub, new_path, seen)
-    else:
-        # process leaf node...
-        pass
-        
 def extract_category_tree():
     resp = requests.get(BASE_URL + "/produkter/")
     soup = BeautifulSoup(resp.text, "html.parser")
     main_categories = []
-    seen = set()
+    seen_main = set()
+    # --- MAIN CATEGORY LEVEL ---
     for a in soup.find_all("a", href=True):
         href = a['href']
         url = urljoin(BASE_URL, href)
-        if should_skip_url(url):
-            logprint(f"Skipping excluded main category (by URL): {url}")
+        if should_skip_url(url) or url in seen_main:
+            logprint(f"Skipping excluded or seen main category: {url}")
             continue
         parsed = urlparse(href)
         if parsed.path.startswith("/produkter/") and not "/page/" in parsed.path and not "/nyheter/" in parsed.path:
             path_parts = [p for p in parsed.path.split("/") if p]
             if len(path_parts) == 2 or (len(path_parts) == 3 and path_parts[2] == ""):
                 catname = a.get_text(strip=True)
-                if catname and catname != "HEM" and url not in seen:
-                    seen.add(url)
+                if catname and catname != "HEM":
+                    seen_main.add(url)
                     main_categories.append({"name": catname, "url": url})
     logprint(f"Hittade {len(main_categories)} huvudkategorier")
 
     tree = []
+    seen_sub = set()
+    seen_subsub = set()
     for cat in main_categories:
-        if should_skip_url(cat["url"]):
-            logprint(f"Skipping excluded category (by URL): {cat['url']}")
+        if should_skip_url(cat["url"]) or cat["url"] in seen_main:
+            logprint(f"Skipping excluded or seen category: {cat['url']}")
             continue
         node = {"name": cat["name"], "url": cat["url"], "subs": []}
         sub_soup = get_soup(cat["url"])
         subcats = []
-        seen_sub = set()
+        # --- SUBCATEGORY LEVEL ---
         if sub_soup:
             for a in sub_soup.find_all("a", href=True):
                 href = a['href']
                 url_sub = urljoin(BASE_URL, href)
-                if should_skip_url(url_sub):
-                    logprint(f"Skipping excluded subcategory (by URL): {url_sub}")
+                if should_skip_url(url_sub) or url_sub in seen_sub:
+                    logprint(f"Skipping excluded or seen subcategory: {url_sub}")
                     continue
                 parsed = urlparse(href)
                 path_parts = [p for p in parsed.path.split("/") if p]
@@ -161,23 +137,22 @@ def extract_category_tree():
                     path_parts[1] == urlparse(cat["url"]).path.split("/")[2]
                 ):
                     catname = a.get_text(strip=True)
-                    if catname and catname != "HEM" and url_sub not in seen_sub:
+                    if catname and catname != "HEM":
                         seen_sub.add(url_sub)
                         subcats.append({"name": catname, "url": url_sub})
-        # Go one level deeper (sub-subcategories)
+        # --- SUB-SUBCATEGORY LEVEL ---
         for sub in subcats:
-            if should_skip_url(sub["url"]):
-                logprint(f"Skipping excluded sub-subcategory (by URL): {sub['url']}")
+            if should_skip_url(sub["url"]) or sub["url"] in seen_subsub:
+                logprint(f"Skipping excluded or seen sub-subcategory: {sub['url']}")
                 continue
             subsub_soup = get_soup(sub["url"])
             subsubs = []
-            seen_subsub = set()
             if subsub_soup:
                 for a in subsub_soup.find_all("a", href=True):
                     href = a['href']
                     url2 = urljoin(BASE_URL, href)
-                    if should_skip_url(url2):
-                        logprint(f"Skipping excluded sub-subcategory (by URL): {url2}")
+                    if should_skip_url(url2) or url2 in seen_subsub:
+                        logprint(f"Skipping excluded or seen sub-subcategory: {url2}")
                         continue
                     parsed2 = urlparse(href)
                     path_parts2 = [p for p in parsed2.path.split("/") if p]
@@ -188,7 +163,7 @@ def extract_category_tree():
                         path_parts2[2] == urlparse(sub["url"]).path.split("/")[3]
                     ):
                         name2 = a.get_text(strip=True)
-                        if name2 and name2 != "HEM" and url2 not in seen_subsub:
+                        if name2 and name2 != "HEM":
                             seen_subsub.add(url2)
                             subsubs.append({"name": name2, "url": url2})
             sub["subs"] = subsubs
@@ -344,7 +319,6 @@ def get_session():
         session.mount("http://", adapter)
         thread_local.session = session
     return thread_local.session
-
 
 # =======================================
 # 4. Deduplication, Field Completeness QC
