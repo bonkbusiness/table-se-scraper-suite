@@ -361,6 +361,44 @@ def parse_value_unit(text):
         return value.strip(), unit.strip()
     return "", ""
 
+def parse_measurements(matt_text):
+    """
+    Parses measurement text and returns a dict of measurement values.
+    Finds Längd, Bredd, Höjd, Djup (or D), Diameter.
+    """
+    result = {}
+    if not matt_text:
+        return result
+    lines = matt_text.split(",")
+    for line in lines:
+        parts = line.strip().split()
+        if not parts:
+            continue
+        label = parts[0].capitalize()
+        value, unit = "", ""
+        if len(parts) > 1:
+            value, unit = parse_value_unit(" ".join(parts[1:]))
+        # Standardize keys
+        if label in ["Längd", "L"]:
+            result["Längd (värde)"] = value
+            result["Längd (enhet)"] = unit
+        elif label in ["Bredd", "B"]:
+            result["Bredd (värde)"] = value
+            result["Bredd (enhet)"] = unit
+        elif label in ["Höjd", "H"]:
+            result["Höjd (värde)"] = value
+            result["Höjd (enhet)"] = unit
+        elif label in ["Djup", "D"]:
+            result["Djup (värde)"] = value
+            result["Djup (enhet)"] = unit
+        elif label in ["Diameter", "Diam." ,"Diam"]:
+            result["Diameter (värde)"] = value
+            result["Diameter (enhet)"] = unit
+        else:
+            # fallback for Mått (text)
+            result["Mått (text)"] = matt_text
+    return result
+
 def extract_product_data(product_url):
     logging.info(f"Extracting: {product_url}")
     soup = get_soup(product_url)
@@ -444,6 +482,7 @@ def extract_product_data(product_url):
     diameter_text = info_dict.get('Diameter', '')
     kapacitet_text = info_dict.get('Kapacitet', '')
     volym_text = info_dict.get('Volym', '')
+    djup_text = info_dict.get('Djup', '') or info_dict.get('D', '')
 
     mått_dict = parse_measurements(matt_text)
     diameter_v, diameter_e = parse_value_unit(diameter_text)
@@ -455,30 +494,39 @@ def extract_product_data(product_url):
     längd_v, längd_e = mått_dict.get("Längd (värde)"), mått_dict.get("Längd (enhet)")
     bredd_v, bredd_e = mått_dict.get("Bredd (värde)"), mått_dict.get("Bredd (enhet)")
     höjd_v, höjd_e = mått_dict.get("Höjd (värde)"), mått_dict.get("Höjd (enhet)")
+    # Djup: Prefer explicit info_dict, then mått_dict
+    djup_v, djup_e = "", ""
+    if djup_text:
+        djup_v, djup_e = parse_value_unit(djup_text)
+    if not djup_v and mått_dict.get("Djup (värde)"):
+        djup_v = mått_dict.get("Djup (värde)")
+        djup_e = mått_dict.get("Djup (enhet)")
 
     data = {
         "Namn": namn,
         "Artikelnummer": artikelnummer,
+        "Färg": farg,
+        "Material": material,
+        "Serie": serie,
         "Pris exkl. moms (värde)": pris_exkl,
         "Pris exkl. moms (enhet)": "kr" if pris_exkl else "",
         "Pris inkl. moms (värde)": pris_inkl,
         "Pris inkl. moms (enhet)": "kr" if pris_inkl else "",
-        "Mått (text)": mått_dict.get("Mått (text)"),
+        "Mått (text)": mått_dict.get("Mått (text)", matt_text),
         "Längd (värde)": längd_v,
         "Längd (enhet)": längd_e,
         "Bredd (värde)": bredd_v,
         "Bredd (enhet)": bredd_e,
         "Höjd (värde)": höjd_v,
         "Höjd (enhet)": höjd_e,
+        "Djup (värde)": djup_v,
+        "Djup (enhet)": djup_e,
         "Diameter (värde)": diameter_v,
         "Diameter (enhet)": diameter_e,
         "Kapacitet (värde)": kap_v,
         "Kapacitet (enhet)": kap_e,
         "Volym (värde)": vol_v,
         "Volym (enhet)": vol_e,
-        "Färg": farg,
-        "Material": material,
-        "Serie": serie,
         "Produktbild-URL": produktbild_url,
         "Produkt-URL": product_url
     }
@@ -486,6 +534,91 @@ def extract_product_data(product_url):
     update_cache(artikelnummer, data, content_hash)
     logprint(f"Extraherad produkt: {namn} (URL: {product_url})")
     return data
+
+def export_to_xlsx(data, base_name="export"):
+    """
+    Export a list of product dicts to XLSX with explicit column order.
+    Returns the filename.
+    """
+    COLUMN_ORDER = [
+        "Namn",
+        "Artikelnummer",
+        "Färg",
+        "Material",
+        "Serie",
+        "Pris exkl. moms (värde)",
+        "Pris exkl. moms (enhet)",
+        "Pris inkl. moms (värde)",
+        "Pris inkl. moms (enhet)",
+        "Mått (text)",
+        "Längd (värde)", "Längd (enhet)",
+        "Bredd (värde)", "Bredd (enhet)",
+        "Höjd (värde)", "Höjd (enhet)",
+        "Djup (värde)", "Djup (enhet)",
+        "Diameter (värde)", "Diameter (enhet)",
+        "Kapacitet (värde)", "Kapacitet (enhet)",
+        "Volym (värde)", "Volym (enhet)",
+        "Produktbild-URL",
+        "Produkt-URL"
+    ]
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Produkter"
+
+    # Write header row
+    for col_num, col in enumerate(COLUMN_ORDER, 1):
+        ws.cell(row=1, column=col_num, value=col)
+
+    # Write data rows
+    for row_num, row in enumerate(data, 2):
+        for col_num, col in enumerate(COLUMN_ORDER, 1):
+            ws.cell(row=row_num, column=col_num, value=row.get(col, ""))
+
+    # Auto-width columns
+    for col_num, col in enumerate(COLUMN_ORDER, 1):
+        ws.column_dimensions[get_column_letter(col_num)].width = max(12, len(col) + 2)
+
+    # Save
+    now = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{base_name}_{now}.xlsx"
+    wb.save(filename)
+    return filename
+
+def backup_export_to_csv(data, base_name="export_backup"):
+    """
+    Export a list of product dicts to CSV with explicit column order.
+    Returns the filename.
+    """
+    COLUMN_ORDER = [
+        "Namn",
+        "Artikelnummer",
+        "Färg",
+        "Material",
+        "Serie",
+        "Pris exkl. moms (värde)",
+        "Pris exkl. moms (enhet)",
+        "Pris inkl. moms (värde)",
+        "Pris inkl. moms (enhet)",
+        "Mått (text)",
+        "Längd (värde)", "Längd (enhet)",
+        "Bredd (värde)", "Bredd (enhet)",
+        "Höjd (värde)", "Höjd (enhet)",
+        "Djup (värde)", "Djup (enhet)",
+        "Diameter (värde)", "Diameter (enhet)",
+        "Kapacitet (värde)", "Kapacitet (enhet)",
+        "Volym (värde)", "Volym (enhet)",
+        "Produktbild-URL",
+        "Produkt-URL"
+    ]
+    now = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{base_name}_{now}.csv"
+    with open(filename, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=COLUMN_ORDER)
+        writer.writeheader()
+        for row in data:
+            writer.writerow({col: row.get(col, "") for col in COLUMN_ORDER})
+    return filename
 
     # ===================
     # More Info Section
