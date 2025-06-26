@@ -224,16 +224,53 @@ def parse_measurements(text):
       - "Bredd (värde)", "Bredd (enhet)"
       - "Höjd (värde)", "Höjd (enhet)"
       - "Diameter (värde)", "Diameter (enhet)"
-    Handles many formats, e.g.:
-      "Längd 120 cm, Bredd 60 cm, Höjd 75 cm"
-      "120x60x75 cm"
-      "Diameter: 30 cm"
-      "Mått: 30x40 cm"
-    If nothing can be parsed, returns a dict with "Mått (text)": original text
     """
     result = {"Mått (text)": text}
     if not text:
         return result
+
+    # Try to find label:value pairs
+    patterns = [
+        (r"Längd\s*[:=]?\s*([\d,.]+)\s*(cm|mm|m)?", "Längd"),
+        (r"Bredd\s*[:=]?\s*([\d,.]+)\s*(cm|mm|m)?", "Bredd"),
+        (r"Höjd\s*[:=]?\s*([\d,.]+)\s*(cm|mm|m)?", "Höjd"),
+        (r"Diameter\s*[:=]?\s*([\d,.]+)\s*(cm|mm|m)?", "Diameter"),
+    ]
+    for pat, label in patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            val = m.group(1).replace(",", ".")
+            unit = m.group(2) if m.group(2) else ""
+            result[f"{label} (värde)"] = val
+            result[f"{label} (enhet)"] = unit
+
+    # Try generic "mått" or 120x60x75 cm etc
+    m = re.search(
+        r"(?<!\d)(\d{2,5}(?:[.,]\d+)?)\s*[x×*\/]\s*(\d{2,5}(?:[.,]\d+)?)\s*[x×*\/]\s*(\d{2,5}(?:[.,]\d+)?)(?:\s*(cm|mm|m))?",
+        text, re.IGNORECASE)
+    if m:
+        vals = [m.group(i).replace(",", ".") for i in range(1, 4)]
+        unit = m.group(4) if m.group(4) else ""
+        result["Längd (värde)"] = vals[0]
+        result["Längd (enhet)"] = unit
+        result["Bredd (värde)"] = vals[1]
+        result["Bredd (enhet)"] = unit
+        result["Höjd (värde)"] = vals[2]
+        result["Höjd (enhet)"] = unit
+
+    # Also handle "Diameter 30 cm" or "Ø30cm"
+    m = re.search(r"(?:diameter|ø)\s*[:=]?\s*([\d,.]+)\s*(cm|mm|m)?", text, re.IGNORECASE)
+    if m:
+        val = m.group(1).replace(",", ".")
+        unit = m.group(2) if m.group(2) else ""
+        result["Diameter (värde)"] = val
+        result["Diameter (enhet)"] = unit
+
+    # If nothing was extracted except Mått (text), log for manual review
+    if len(result) == 1:
+        logging.info(f"parse_measurements: Could not parse measurements from: '{text}'")
+
+    return result
 
     # Try to find label:value pairs
     patterns = [
