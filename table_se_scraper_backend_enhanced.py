@@ -12,8 +12,13 @@ import logging
 import os
 import traceback
 
-from urllib.parse import urljoin
+# 3rd-party libraries
+import requests
 from bs4 import BeautifulSoup
+from tqdm import tqdm
+from urllib.parse import urljoin, urlparse
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 BASE_URL = "https://www.table.se"  # Or whatever the correct base URL is for the site you are scraping
 
