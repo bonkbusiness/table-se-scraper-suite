@@ -1,19 +1,17 @@
 """
-Enhanced backend for Table.se scraper: Adds performance, reliability, maintainability, and data quality improvements.
-- Keeps original scraper and exporter functions untouched.
-- Call and use these enhanced functions from your main script as needed.
+Enhanced backend for Table.se scraper: Performance, reliability, modular exclusions, and a global seen set.
+- Exclusion/pruning logic is now handled post-tree-build ("do not descend" approach).
+- Exclusion logic lives in exclusions.py as a standalone module.
 """
 
-from exclusions import EXCLUDED_URL_PREFIXES
+from exclusions import is_excluded
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 import logging
 import os
 import traceback
-
-# 3rd-party libraries
 import requests
 from bs4 import BeautifulSoup
 from tqdm import tqdm
@@ -21,14 +19,7 @@ from urllib.parse import urljoin, urlparse
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-BASE_URL = "https://www.table.se"  # Or whatever the correct base URL is for the site you are scraping
-
-def should_skip_url(url):
-    for prefix in EXCLUDED_URL_PREFIXES:
-        if url.startswith(prefix):
-            print(f"Excluding URL due to prefix: {prefix} -> {url}")
-            return True
-    return False
+BASE_URL = "https://www.table.se"
 
 # ================
 # 1. Logging Setup
@@ -50,10 +41,6 @@ def logprint(msg: str):
 # =========================
 
 def parallel_map(func, iterable, max_workers=8, desc="Working..."):
-    """
-    Parallel map with progress display.
-    """
-    from tqdm import tqdm
     results = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(func, item): item for item in iterable}
@@ -65,9 +52,6 @@ def parallel_map(func, iterable, max_workers=8, desc="Working..."):
     return results
 
 def get_soup_with_retries(url: str, throttle: float = 0.7, max_retries: int = 3) -> Optional[BeautifulSoup]:
-    """
-    Like get_soup, but with built-in retries and request throttling.
-    """
     last_exc = None
     for attempt in range(max_retries):
         try:
@@ -86,20 +70,21 @@ def get_soup_with_retries(url: str, throttle: float = 0.7, max_retries: int = 3)
 get_soup = get_soup_with_retries
 
 # ========================
-# 2a. Category extraction (3 levels deep)
+# 2a. Category extraction (Post-pruning w/ global seen set)
 # ========================
 
 def extract_category_tree():
+    """Build the full category tree, then prune after."""
     resp = requests.get(BASE_URL + "/produkter/")
     soup = BeautifulSoup(resp.text, "html.parser")
+    seen: Set[str] = set()
     main_categories = []
-    seen_main = set()
-    # --- MAIN CATEGORY LEVEL ---
+
+    # Collect main categories (seen set is global)
     for a in soup.find_all("a", href=True):
         href = a['href']
         url = urljoin(BASE_URL, href)
-        if should_skip_url(url) or url in seen_main:
-            logprint(f"Skipping excluded or seen main category: {url}")
+        if url in seen:
             continue
         parsed = urlparse(href)
         if parsed.path.startswith("/produkter/") and not "/page/" in parsed.path and not "/nyheter/" in parsed.path:
@@ -107,76 +92,73 @@ def extract_category_tree():
             if len(path_parts) == 2 or (len(path_parts) == 3 and path_parts[2] == ""):
                 catname = a.get_text(strip=True)
                 if catname and catname != "HEM":
-                    seen_main.add(url)
+                    seen.add(url)
                     main_categories.append({"name": catname, "url": url})
-    logprint(f"Hittade {len(main_categories)} huvudkategorier")
 
+    logprint(f"Hittade {len(main_categories)} huvudkategorier")
     tree = []
-    seen_sub = set()
-    seen_subsub = set()
     for cat in main_categories:
-        if should_skip_url(cat["url"]) or cat["url"] in seen_main:
-            logprint(f"Skipping excluded or seen category: {cat['url']}")
-            continue
-        node = {"name": cat["name"], "url": cat["url"], "subs": []}
-        sub_soup = get_soup(cat["url"])
-        subcats = []
-        # --- SUBCATEGORY LEVEL ---
-        if sub_soup:
-            for a in sub_soup.find_all("a", href=True):
-                href = a['href']
-                url_sub = urljoin(BASE_URL, href)
-                if should_skip_url(url_sub) or url_sub in seen_sub:
-                    logprint(f"Skipping excluded or seen subcategory: {url_sub}")
-                    continue
-                parsed = urlparse(href)
-                path_parts = [p for p in parsed.path.split("/") if p]
-                if (
-                    len(path_parts) == 3 and
-                    path_parts[0] == "produkter" and
-                    path_parts[1] == urlparse(cat["url"]).path.split("/")[2]
-                ):
-                    catname = a.get_text(strip=True)
-                    if catname and catname != "HEM":
-                        seen_sub.add(url_sub)
-                        subcats.append({"name": catname, "url": url_sub})
-        # --- SUB-SUBCATEGORY LEVEL ---
-        for sub in subcats:
-            if should_skip_url(sub["url"]) or sub["url"] in seen_subsub:
-                logprint(f"Skipping excluded or seen sub-subcategory: {sub['url']}")
-                continue
-            subsub_soup = get_soup(sub["url"])
-            subsubs = []
-            if subsub_soup:
-                for a in subsub_soup.find_all("a", href=True):
-                    href = a['href']
-                    url2 = urljoin(BASE_URL, href)
-                    if should_skip_url(url2) or url2 in seen_subsub:
-                        logprint(f"Skipping excluded or seen sub-subcategory: {url2}")
-                        continue
-                    parsed2 = urlparse(href)
-                    path_parts2 = [p for p in parsed2.path.split("/") if p]
-                    if (
-                        len(path_parts2) == 4 and
-                        path_parts2[0] == "produkter" and
-                        path_parts2[1] == urlparse(cat["url"]).path.split("/")[2] and
-                        path_parts2[2] == urlparse(sub["url"]).path.split("/")[3]
-                    ):
-                        name2 = a.get_text(strip=True)
-                        if name2 and name2 != "HEM":
-                            seen_subsub.add(url2)
-                            subsubs.append({"name": name2, "url": url2})
-            sub["subs"] = subsubs
-        node["subs"] = subcats
-        tree.append(node)
+        node = build_category_node(cat["name"], cat["url"], seen)
+        if node:
+            tree.append(node)
+    # Prune excluded nodes after building full tree
+    tree = [prune_excluded_nodes(node) for node in tree if prune_excluded_nodes(node)]
     return tree
 
+def build_category_node(name: str, url: str, seen: Set[str]) -> Optional[Dict]:
+    """Recursively build category node with subs, using the global seen set."""
+    if url in seen:
+        return None
+    seen.add(url)
+    node = {"name": name, "url": url, "subs": []}
+    soup = get_soup(url)
+    if not soup:
+        return node
+    subcats = []
+    for a in soup.find_all("a", href=True):
+        href = a['href']
+        sub_url = urljoin(BASE_URL, href)
+        if sub_url in seen:
+            continue
+        parsed = urlparse(href)
+        path_parts = [p for p in parsed.path.split("/") if p]
+        # Heuristic: subcategory if path is one longer than parent
+        if (
+            parsed.path.startswith("/produkter/")
+            and len(path_parts) > 2
+            and name.lower() not in ("hem",)
+        ):
+            subcat_name = a.get_text(strip=True)
+            if subcat_name and subcat_name != "HEM":
+                subnode = build_category_node(subcat_name, sub_url, seen)
+                if subnode:
+                    subcats.append(subnode)
+    node["subs"] = subcats
+    return node
+
+def prune_excluded_nodes(node: Dict) -> Optional[Dict]:
+    """Prune this node and all children if excluded."""
+    if is_excluded(node["url"]):
+        logprint(f"Pruned excluded node: {node['url']}")
+        return None
+    if "subs" in node:
+        pruned_subs = []
+        for sub in node["subs"]:
+            pruned = prune_excluded_nodes(sub)
+            if pruned:
+                pruned_subs.append(pruned)
+        node["subs"] = pruned_subs
+    return node
+
 # ================================
-# 2b. Productdata Extraction
+# 2b. Productdata Extraction (Unchanged)
 # ================================
 
 def extract_product_data(product_url):
     logging.info(f"Extracting: {product_url}")
+    if is_excluded(product_url):
+        logprint(f"Skipping excluded product page: {product_url}")
+        return None
     soup = get_soup(product_url)
     if not soup:
         logging.warning(f"Soup is None for {product_url}")
@@ -297,13 +279,8 @@ def extract_product_data(product_url):
     return data
 
 # ================================
-# 3. Request Throttling & Retries
+# 3. Request Throttling & Retries (unchanged)
 # ================================
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-
-# Thread-local session for thread-safety
 thread_local = threading.local()
 
 def get_session():
@@ -319,7 +296,7 @@ def get_session():
         session.mount("http://", adapter)
         thread_local.session = session
     return thread_local.session
-
+    
 # =======================================
 # 4. Deduplication, Field Completeness QC
 # =======================================
