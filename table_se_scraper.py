@@ -80,12 +80,6 @@ def logprint(msg):
     print(msg)
     logging.info(msg)
 
-def should_skip_url(url):
-    for prefix in EXCLUDED_URL_PREFIXES:
-        if url.startswith(prefix):
-            return True
-    return False
-
 BASE_URL = "https://www.table.se"
 
 # ========================
