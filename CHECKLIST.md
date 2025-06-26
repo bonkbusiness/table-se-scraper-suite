@@ -2,95 +2,44 @@
 
 ## 1. Modular Scraper: Core Functionality
 
-- [ ] **Category Extraction**
-  - [ ] Fully traverse all category levels (main, sub, sub-sub) on table.se
-  - [ ] Exclude categories based on `exclusions.py` logic
-  - [ ] Unit tests for category extraction
-        
-📌 Step 1: Category Extraction
+# Scraper Category Extraction Checklist
 
-A. Functional Requirements
+## A. Core Functionality
 
-    Full Traversal: Script must crawl all category, subcategory, and sub-subcategory pages on table.se.
-    Exclusion Logic: Must skip categories based on rules in exclusions.py (i.e., URLs or names to avoid).
-    Unit Testing: Extraction logic should be independently testable for correctness and exclusion.
+- [x] **1.1 Fully traverse all category levels (main, sub, sub-sub) on table.se**
+    - Implemented in `scraper/category.py` as `extract_category_tree()`, `build_category_node()`
+- [x] **1.2 Exclude categories based on exclusions.py logic**
+    - Uses `is_excluded()` from `exclusions.py` and `prune_excluded_nodes()`
+- [x] **1.3 Unit tests for category extraction**
+    - `tests/test_category.py` covers: full tree, exclusions, edge cases
 
--1. Modular Scraper: Core Functionality
-  Category Extraction
-  1.1 Fully traverse all category levels (main, sub, sub-sub) on table.se
+## B. Refactoring
 
-    Is it implemented?
-    Yes, in principle.
-        The function extract_category_tree() (from table_se_scraper_backend_enhanced.py) recursively traverses all main categories and their subcategories, building a tree.
-        Helper: build_category_node(name, url, seen) manages recursion.
-        It is already modular and ready to be migrated (or is already migrated) to scraper/category.py.
+- [x] **Code moved and cleaned up to `scraper/category.py`**
+- [x] **All exclusion and recursion logic included**
+- [x] **Interface is clean: input/output are minimal and predictable**
 
-    Action:
-        Confirm that this logic is now in scraper/category.py (or move it if not).
-        Ensure it builds a complete tree (test on live site).
+## C. Tests
 
-  1.2 Exclude categories based on exclusions.py logic
+- [x] **Unit tests draft and implemented**
+    - Mocked HTML structure
+    - Mocked `is_excluded` for exclusions
+    - Tests for: all nodes found, exclusions, tree structure, empty/broken categories, deep nesting
 
-    Is it implemented?
-    Yes.
-        The pruning step uses is_excluded(url) to skip nodes after the tree is built.
-        The function prune_excluded_nodes(node) recursively removes excluded nodes.
+## D. Documentation
 
-    Action:
-        Confirm exclusions.py and is_excluded() are imported/used in scraper/category.py.
-        Ensure excluded categories are not present in the final tree.
+- [x] **Docstrings for all public functions in `scraper/category.py`**
+- [x] **Major functions are self-explanatory with comments where needed**
 
-  1.3 Unit tests for category extraction
+---
 
-    Is it implemented?
-    Not yet.
-        There is no evidence of a tests/test_category.py or similar.
+## What’s Next?
 
-    Action:
-        Create tests/test_category.py.
-        Write tests that:
-            Mock category HTML structure.
-            Mock is_excluded to simulate exclusions.
-            Validate that:
-                The full tree is built when no exclusions.
-                Excluded categories are actually pruned.
-                Edge cases (no categories, deep nesting, broken HTML) are handled.
-        Add to CI if possible.
-      
+- [ ] (Optional) Add tests for 404s/redirects/network errors
+- [ ] (Optional) Integrate tests in CI pipeline
+- [ ] (Optional) High-level documentation/readme for module usage
 
-B. What’s Already In-Place?
-
-You already have (from table_se_scraper_backend_enhanced.py):
-
-    extract_category_tree()
-    build_category_node(name, url, seen)
-    prune_excluded_nodes(node)
-    Use of exclusions via is_excluded()
-
-These are modular and mostly ready for scraper/category.py!
-C. What Is Still Needed?
-
-    Polish & Refactor: Move/clean code into scraper/category.py.
-    Unit Tests: In tests/test_category.py (or similar)
-        Test: full tree, structure, exclusions, edge-cases (empty/404/redirects).
-    Docs: Docstrings for all public functions.
-
-D. Next Steps
-
-    Move/Refactor category extraction to scraper/category.py
-        Ensure all exclusion and recursion logic is included.
-        Clean up interface (inputs/outputs).
-
-    Draft Unit Tests:
-        Use a mock/fake HTML for categories and is_excluded logic.
-        Test for:
-            All nodes found
-            Exclusions respected
-            Correct tree structure
-
-    Docstrings & Comments:
-        Make all major functions self-explanatory.
-
+---
 
 - [ ] **Product URL Extraction**
   - [ ] Correctly extract all product URLs from every (sub)category, including pagination
