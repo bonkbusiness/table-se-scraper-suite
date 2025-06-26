@@ -569,7 +569,7 @@ def backup_export_to_csv(data, base_name="table_produkter_backup"):
         return None
 
 def export_to_xlsx(data, base_name="table_produkter"):
-   logging.info(f"DEBUG: export_to_xlsx called with data type: {type(data)}")
+    logging.info(f"DEBUG: export_to_xlsx called with data type: {type(data)}")
     if isinstance(data, list):
         logging.info(f"DEBUG: Data length: {len(data)}")
         if len(data) > 0:
