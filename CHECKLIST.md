@@ -2,9 +2,9 @@
 
 ## 1. Modular Scraper: Core Functionality
 
-# Scraper Category Extraction Checklist
+# Scraper Category & Product URL Extraction Checklist
 
-## A. Core Functionality
+## A. Category Extraction
 
 - [x] **1.1 Fully traverse all category levels (main, sub, sub-sub) on table.se**
     - Implemented in `scraper/category.py` as `extract_category_tree()`, `build_category_node()`
@@ -33,82 +33,29 @@
 
 ---
 
-## What’s Next?
+## E. Product URL Extraction
 
-- [ ] (Optional) Add tests for 404s/redirects/network errors
-- [ ] (Optional) Integrate tests in CI pipeline
-- [ ] (Optional) High-level documentation/readme for module usage
+- [ ] **Extract all product URLs from every (sub)category, including pagination**
+    - Traverse all category and subcategory pages
+    - Handle paginated category pages (`?page=2`, etc.)
+- [ ] **Avoid duplicates and respect exclusions**
+    - Only unique product URLs in the final result
+    - Exclude products/categories via `is_excluded()`
+- [ ] **Modular, testable, and clean interface**
+    - Functions in `scraper/product_url.py`
+    - Unit tests in `tests/test_product_url.py`
+    - Comprehensive docstrings
 
 ---
 
-- [ ] **Product URL Extraction**
-  - [ ] Correctly extract all product URLs from every (sub)category, including pagination
-  - [ ] Avoid duplicates and respect exclusions
+## Next Steps
 
-Product URL Extraction — Requirements
-
-    Correctly extract all product URLs
-        From every category and subcategory page (recursively)
-        Must handle paginated category pages
-    Avoid duplicates
-        Only unique product URLs in the final list/tree
-    Respect exclusions
-        Exclude products/categories as defined in exclusions.py (is_excluded)
-    Modular, testable, and clean interface
-        Functions in e.g. scraper/product_url.py
-        Unit tests in tests/test_product_url.py
-        Docstrings for all public functions
-
-Action Steps
-1. Implement in scraper/product_url.py
-
-    Function to accept a category tree (from previous step)
-    For each node:
-        Traverse all (sub)categories
-        For each category URL:
-            Follow pagination (?page=2, etc.)
-            Extract all product URLs from each page
-            Skip excluded ones
-    Build a unique set/list of product URLs
-
-Suggested interface:
-Python
-
-def extract_product_urls(category_tree):
-    """
-    Given a category tree, extract all unique product URLs, handling pagination and exclusions.
-
-    Args:
-        category_tree (list): Output from extract_category_tree()
-
-    Returns:
-        set: Unique product URLs (as strings)
-    """
-
-2. Unit Tests in tests/test_product_url.py
-
-    Mock HTML for paginated category pages (simulate next/prev, “page 2”, etc.)
-    Mock is_excluded
-    Test:
-        All products found (across pages and subcategories)
-        Exclusions are respected
-        Duplicates are avoided
-        Edge cases: empty category, broken HTML, no products, last page, etc.
-
-3. Docstrings and Comments
-
-    Clear docstrings for all public functions
-
-Example Structure
-Code
-
-scraper/
-  category.py
-  product_url.py    # <--- new/updated
-tests/
-  test_category.py
-  test_product_url.py
-
+- [ ] Implement `extract_product_urls()` in `scraper/product_url.py`
+- [ ] Draft and implement tests in `tests/test_product_url.py`
+- [ ] Add docstrings & comments to all new functions
+- [ ] (Optional) Add tests for 404s/redirects/network errors
+- [ ] (Optional) Integrate tests in CI pipeline
+- [ ] (Optional) High-level documentation/readme for module usage
 
 
 ---
