@@ -343,6 +343,20 @@ def extract_category_tree():
 # ========================
 # 5. Scraper functions (3-level deep)
 # ========================
+def parse_value_unit(text):
+    """
+    Splits a string like '12 cm' or '10,5L' into ('12', 'cm') or ('10.5', 'L').
+    Returns ('', '') if nothing found.
+    """
+    if not text:
+        return "", ""
+    text = text.replace(",", ".")
+    match = re.search(r"([\d.]+)\s*([a-zA-ZåäöÅÄÖ%]*)", text)
+    if match:
+        value, unit = match.group(1), match.group(2)
+        return value.strip(), unit.strip()
+    return "", ""
+
 def extract_product_data(product_url):
     logging.info(f"Extracting: {product_url}")
     soup = get_soup(product_url)
