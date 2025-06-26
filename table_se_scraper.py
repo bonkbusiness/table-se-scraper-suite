@@ -60,7 +60,25 @@ def get_soup(url, timeout=20):
     except Exception as e:
         logprint(f"Fel vid hämtning av {url}: {e}")
         return None
-        
+
+def extract_only_number_value(text):
+    """
+    Extracts a numeric value (as string, with dot as decimal separator) from a messy string.
+    Example: "1 234,00 kr" -> "1234.00"
+    """
+    import re
+    if not text:
+        return ""
+    # Remove all non-digit, non-decimal-separator characters
+    # Accept both , and . as decimal separator
+    # Remove spaces (thousand separators)
+    cleaned = text.replace(" ", "").replace("\xa0", "")
+    # Replace comma with dot for decimals
+    cleaned = cleaned.replace(",", ".")
+    # Extract the first number in the string
+    match = re.search(r"\d*\.?\d+", cleaned)
+    return match.group(0) if match else ""
+    
 def extract_only_numbers(text):
     """Extract only digits from the input string."""
     return "".join(filter(str.isdigit, str(text)))
