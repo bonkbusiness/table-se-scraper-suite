@@ -4,6 +4,7 @@ Enhanced backend for Table.se scraper: Adds performance, reliability, maintainab
 - Call and use these enhanced functions from your main script as needed.
 """
 
+from exclusions import EXCLUDED_URL_PREFIXES
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
@@ -11,6 +12,7 @@ from typing import Any, Dict, List, Optional
 import logging
 import os
 import traceback
+# ... rest of your imports ...
 
 # 3rd-party libraries
 import requests
@@ -46,6 +48,7 @@ def logprint(msg: str):
 # =========================
 # 2. Parallel Fetch Utility
 # =========================
+
 def parallel_map(func, iterable, max_workers=8, desc="Working..."):
     """
     Parallel map with progress display.
@@ -61,9 +64,58 @@ def parallel_map(func, iterable, max_workers=8, desc="Working..."):
                 logger.warning(f"Exception in parallel_map: {e}")
     return results
 
+
+def get_soup_with_retries(url: str, throttle: float = 0.7, max_retries: int = 3) -> Optional[BeautifulSoup]:
+    """
+    Like get_soup, but with built-in retries and request throttling.
+    """
+    last_exc = None
+    for attempt in range(max_retries):
+        try:
+            session = get_session()
+            resp = session.get(url, timeout=20)
+            resp.raise_for_status()
+            time.sleep(throttle)
+            return BeautifulSoup(resp.text, "html.parser")
+        except Exception as e:
+            logger.warning(f"Fetch failed ({url}), attempt {attempt+1}/{max_retries}: {e}")
+            last_exc = e
+            time.sleep(1.5 * (attempt + 1))
+    logger.error(f"Giving up on {url}: {last_exc}")
+    return None
+
+get_soup = get_soup_with_retries
+
 # ========================
 # 2a. Category extraction (3 levels deep)
 # ========================
+
+def should_skip_url(url):
+    for prefix in EXCLUDED_URL_PREFIXES:
+        if url.startswith(prefix):
+            print(f"Excluding URL due to prefix: {prefix} -> {url}")
+            return True
+    return False
+
+# Example improved traversal function:
+def traverse(node, path, seen=None):
+    if seen is None:
+        seen = set()
+    name = node["name"]
+    url = node["url"]
+    if url in seen:
+        return  # Avoid infinite revisit
+    seen.add(url)
+    if should_skip_url(url):
+        return  # Prune branch!
+    new_path = path + [name]
+    if node.get("subs"):
+        for sub in node["subs"]:
+            traverse(sub, new_path, seen)
+    else:
+        # process leaf node...
+        pass
+        
 def extract_category_tree():
     resp = requests.get(BASE_URL + "/produkter/")
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -147,9 +199,6 @@ def extract_category_tree():
 # ================================
 # 2b. Productdata Extraction
 # ================================
-
-
-
 
 def extract_product_data(product_url):
     logging.info(f"Extracting: {product_url}")
@@ -296,24 +345,6 @@ def get_session():
         thread_local.session = session
     return thread_local.session
 
-def get_soup_with_retries(url: str, throttle: float = 0.7, max_retries: int = 3) -> Optional[BeautifulSoup]:
-    """
-    Like get_soup, but with built-in retries and request throttling.
-    """
-    last_exc = None
-    for attempt in range(max_retries):
-        try:
-            session = get_session()
-            resp = session.get(url, timeout=20)
-            resp.raise_for_status()
-            time.sleep(throttle)
-            return BeautifulSoup(resp.text, "html.parser")
-        except Exception as e:
-            logger.warning(f"Fetch failed ({url}), attempt {attempt+1}/{max_retries}: {e}")
-            last_exc = e
-            time.sleep(1.5 * (attempt + 1))
-    logger.error(f"Giving up on {url}: {last_exc}")
-    return None
 
 # =======================================
 # 4. Deduplication, Field Completeness QC
