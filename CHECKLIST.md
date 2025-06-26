@@ -8,11 +8,55 @@
   - [ ] Unit tests for category extraction
         
 📌 Step 1: Category Extraction
+
 A. Functional Requirements
 
     Full Traversal: Script must crawl all category, subcategory, and sub-subcategory pages on table.se.
     Exclusion Logic: Must skip categories based on rules in exclusions.py (i.e., URLs or names to avoid).
     Unit Testing: Extraction logic should be independently testable for correctness and exclusion.
+
+-1. Modular Scraper: Core Functionality
+  Category Extraction
+  1.1 Fully traverse all category levels (main, sub, sub-sub) on table.se
+
+    Is it implemented?
+    Yes, in principle.
+        The function extract_category_tree() (from table_se_scraper_backend_enhanced.py) recursively traverses all main categories and their subcategories, building a tree.
+        Helper: build_category_node(name, url, seen) manages recursion.
+        It is already modular and ready to be migrated (or is already migrated) to scraper/category.py.
+
+    Action:
+        Confirm that this logic is now in scraper/category.py (or move it if not).
+        Ensure it builds a complete tree (test on live site).
+
+  1.2 Exclude categories based on exclusions.py logic
+
+    Is it implemented?
+    Yes.
+        The pruning step uses is_excluded(url) to skip nodes after the tree is built.
+        The function prune_excluded_nodes(node) recursively removes excluded nodes.
+
+    Action:
+        Confirm exclusions.py and is_excluded() are imported/used in scraper/category.py.
+        Ensure excluded categories are not present in the final tree.
+
+  1.3 Unit tests for category extraction
+
+    Is it implemented?
+    Not yet.
+        There is no evidence of a tests/test_category.py or similar.
+
+    Action:
+        Create tests/test_category.py.
+        Write tests that:
+            Mock category HTML structure.
+            Mock is_excluded to simulate exclusions.
+            Validate that:
+                The full tree is built when no exclusions.
+                Excluded categories are actually pruned.
+                Edge cases (no categories, deep nesting, broken HTML) are handled.
+        Add to CI if possible.
+      
 
 B. What’s Already In-Place?
 
