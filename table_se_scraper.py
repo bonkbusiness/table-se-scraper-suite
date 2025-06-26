@@ -1082,9 +1082,10 @@ def export_errors_to_xlsx(errors, base_name="table_produkter_errors"):
 # 7. Enhanced Main Entrypoint (Parallelized, Smart Scan, Separate Error XLSX)
 # ========================
 def enhanced_main_with_scan_and_error_file():
+    # Pass the skip function itself, not a call with an undefined variable!
     exported_file, fallback_used, error_traceback = main_enhanced(
         extract_category_tree_func=extract_category_tree,
-        skip_func=should_skip_url(url),
+        skip_func=should_skip_url,  # FIXED LINE: pass the function, not should_skip_url(url)
         extract_func=extract_product_data,
         export_func=export_to_xlsx,                  # main export
         max_workers=8,
