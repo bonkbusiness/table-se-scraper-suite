@@ -3,6 +3,39 @@ from .cache import get_cached_product, update_cache, hash_content
 from exclusions import is_excluded
 from bs4 import BeautifulSoup
 import requests
+from urllib.parse import urljoin
+
+BASE_URL = "https://www.table.se"
+
+def extract_products_from_category(category_url):
+    """
+    Given a category URL, return a list of all product page URLs in that category (across all paginated pages).
+    """
+    product_urls = set()
+    page = 1
+    while True:
+        if page == 1:
+            url = category_url
+        else:
+            # Table.se may use ?page=2 or /page/2/; adjust as needed
+            url = f"{category_url.rstrip('/')}/page/{page}/"
+        resp = requests.get(url)
+        if not resp.ok:
+            break
+        soup = BeautifulSoup(resp.text, "html.parser")
+        # Adjust these selectors if Table.se changes their HTML!
+        # Typical selectors for WooCommerce/WordPress shops:
+        for a in soup.select(".product a.woocommerce-LoopProduct-link, .products .product a"):
+            href = a.get("href")
+            if href:
+                product_urls.add(urljoin(BASE_URL, href))
+        # Check for "next page" button or pagination
+        next_btn = soup.select_one(".page-numbers .next, a.next")
+        if next_btn and next_btn.get("href"):
+            page += 1
+        else:
+            break
+    return list(product_urls)
 
 def scrape_product(product_url):
     if is_excluded(product_url):
