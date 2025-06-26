@@ -46,8 +46,8 @@
 
 ## Next Steps
 
-- [ ] Implement `extract_product_urls()` in `scraper/product_url.py`
-- [ ] Draft and implement tests in `tests/test_product_url.py`
+- [ ] Implement `extract_product_urls()` in `scraper/product.py`
+- [ ] Draft and implement tests in `tests/test_product.py`
 - [ ] Add docstrings & comments to all new functions
 - [ ] (Optional) Add tests for 404s/redirects/network errors
 - [ ] (Optional) Integrate tests in CI pipeline
