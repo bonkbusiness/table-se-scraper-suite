@@ -215,35 +215,69 @@ def safe_export_to_xlsx_with_colab_backup(data, base_name="table_produkter"):
             print("Backup-export misslyckades helt!")
             return None, True
 
-def export_errors_to_xlsx(errors, base_name="table_produkter_errors"):
-    if not errors:
-        print("Inga valideringsfel att exportera.")
-        return None
-    export_dir = "/content" if os.path.exists("/content") else "."
-    filename = os.path.join(export_dir, f"{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Produktfel"
-    ws.append(["Index", "Feltyp", "Produktinfo"])
-    for idx, err in enumerate(errors):
-        ws.append([
-            idx + 1,
-            err.get("error_type", str(err.get("type", ""))),
-            str(err.get("product", err))
-        ])
-    try:
-        wb.save(filename)
-        print(f"Export av fel till XLSX klar: {filename}")
-    except Exception as e:
-        print(f"Fel vid sparande av fel-XLSX: {e}")
-        logging.error(f"XLSX error export failed: {e}")
-        backup_filename = os.path.join(export_dir, f"{base_name}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
-        backup_result = backup_export_to_csv(errors, backup_filename)
-        if backup_result:
-            print("Felrapport exporterades som CSV istället för XLSX.")
-            return backup_result
-        return None
-    return filename
+def parse_measurements(text):
+    """
+    Tries to extract measurements (mått) from messy Swedish product info text.
+    Returns a dict with keys like:
+      - "Mått (text)"
+      - "Längd (värde)", "Längd (enhet)"
+      - "Bredd (värde)", "Bredd (enhet)"
+      - "Höjd (värde)", "Höjd (enhet)"
+      - "Diameter (värde)", "Diameter (enhet)"
+    Handles many formats, e.g.:
+      "Längd 120 cm, Bredd 60 cm, Höjd 75 cm"
+      "120x60x75 cm"
+      "Diameter: 30 cm"
+      "Mått: 30x40 cm"
+    If nothing can be parsed, returns a dict with "Mått (text)": original text
+    """
+    result = {"Mått (text)": text}
+    if not text:
+        return result
+
+    # Try to find label:value pairs
+    patterns = [
+        (r"Längd\s*[:=]?\s*([\d,.]+)\s*(cm|mm|m)?", "Längd"),
+        (r"Bredd\s*[:=]?\s*([\d,.]+)\s*(cm|mm|m)?", "Bredd"),
+        (r"Höjd\s*[:=]?\s*([\d,.]+)\s*(cm|mm|m)?", "Höjd"),
+        (r"Diameter\s*[:=]?\s*([\d,.]+)\s*(cm|mm|m)?", "Diameter"),
+    ]
+    for pat, label in patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            val = m.group(1).replace(",", ".")
+            unit = m.group(2) if m.group(2) else ""
+            result[f"{label} (värde)"] = val
+            result[f"{label} (enhet)"] = unit
+
+    # Try generic "mått" or 120x60x75 cm etc
+    # E.g: "120 x 60 x 75 cm", "120x60x75cm", "120*60*75 cm"
+    m = re.search(
+        r"(?<!\d)(\d{2,5}(?:[.,]\d+)?)\s*[x×*\/]\s*(\d{2,5}(?:[.,]\d+)?)\s*[x×*\/]\s*(\d{2,5}(?:[.,]\d+)?)(?:\s*(cm|mm|m))?",
+        text, re.IGNORECASE)
+    if m:
+        vals = [m.group(i).replace(",", ".") for i in range(1, 4)]
+        unit = m.group(4) if m.group(4) else ""
+        result["Längd (värde)"] = vals[0]
+        result["Längd (enhet)"] = unit
+        result["Bredd (värde)"] = vals[1]
+        result["Bredd (enhet)"] = unit
+        result["Höjd (värde)"] = vals[2]
+        result["Höjd (enhet)"] = unit
+
+    # Also handle "Diameter 30 cm" or "Ø30cm"
+    m = re.search(r"(?:diameter|ø)\s*[:=]?\s*([\d,.]+)\s*(cm|mm|m)?", text, re.IGNORECASE)
+    if m:
+        val = m.group(1).replace(",", ".")
+        unit = m.group(2) if m.group(2) else ""
+        result["Diameter (värde)"] = val
+        result["Diameter (enhet)"] = unit
+
+    # If nothing was extracted except Mått (text), log for manual review
+    if len(result) == 1:
+        logging.info(f"parse_measurements: Could not parse measurements from: '{text}'")
+
+    return result
 
 # ========================
 # 4. Category extraction (3 levels deep)
