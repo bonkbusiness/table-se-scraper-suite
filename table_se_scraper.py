@@ -831,10 +831,11 @@ def extract_products_from_category(category_url):
     if not soup:
         return []
     product_urls = []
-    next_page = True
     page_number = 1
-    while next_page:
+    while True:
         prods = soup.select(".product a.woocommerce-LoopProduct-link, .products .product a")
+        # Check if there are any products on this page that are NOT excluded
+        valid_urls_this_page = []
         for a in prods:
             href = a.get("href")
             if href:
@@ -843,16 +844,21 @@ def extract_products_from_category(category_url):
                     logprint(f"Skipping excluded product (by URL): {url}")
                     continue
                 if url not in product_urls:
-                    product_urls.append(url)
+                    valid_urls_this_page.append(url)
+        if not valid_urls_this_page:
+            # No products to process (all excluded or no products), stop paginating!
+            break
+        product_urls.extend(valid_urls_this_page)
+        # Look for next page button
         next_btn = soup.select_one(".page-numbers .next")
         if next_btn and next_btn.get("href"):
             next_url = urljoin(BASE_URL, next_btn.get("href"))
-            page_number += 1
             soup = get_soup(next_url)
             if not soup:
                 break
+            page_number += 1
         else:
-            next_page = False
+            break
     return product_urls
 
 # In category tree traversal (extract_category_tree), you can add similar checks before recursing/extracting:
