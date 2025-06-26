@@ -66,7 +66,10 @@ def setup_logging(prefix="table_produkter", timestamp=None):
         filemode='a',
         format='%(asctime)s %(levelname)s:%(message)s'
     )
-    logging.getLogger().addHandler(logging.StreamHandler())
+    # Only add a StreamHandler if not present (avoid duplicate logs)
+    root_logger = logging.getLogger()
+    if not any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers):
+        root_logger.addHandler(logging.StreamHandler())
 
 def logprint(msg):
     print(msg)
@@ -205,7 +208,11 @@ def backup_export_to_csv(data, filename=None, base_name="table_produkter_backup"
         logging.error(f"CSV backup export failed: {e}")
         return None
 
-def export_to_xlsx(data, prefix="table_produkter", timestamp=None):
+def export_to_xlsx(data, prefix="table_produkter", timestamp=None, sort_key="Namn"):
+    """
+    Export a list of product dicts to XLSX in the exports/ folder, sorted by sort_key.
+    Returns the filename or None on error.
+    """
     COLUMN_ORDER = [
         "Namn",
         "Artikelnummer",
@@ -234,25 +241,35 @@ def export_to_xlsx(data, prefix="table_produkter", timestamp=None):
     if not timestamp:
         timestamp = get_timestamp()
     filename = get_export_filename(prefix, "xlsx", timestamp)
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Produkter"
-    for col_num, col in enumerate(COLUMN_ORDER, 1):
-        cell = ws.cell(row=1, column=col_num, value=col)
-        cell.font = Font(bold=True, color="FFFFFFFF")
-        cell.fill = PatternFill("solid", fgColor="FF212121")
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        cell.border = Border(bottom=Side(style="medium", color="FFB0BEC5"))
-    for row_num, row in enumerate(data, 2):
+    try:
+        data_sorted = sort_products(data, sort_key=sort_key)
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Produkter"
         for col_num, col in enumerate(COLUMN_ORDER, 1):
-            ws.cell(row=row_num, column=col_num, value=row.get(col, ""))
-    for col_num, col in enumerate(COLUMN_ORDER, 1):
-        ws.column_dimensions[get_column_letter(col_num)].width = max(12, len(col) + 2)
-    wb.save(filename)
-    print(f"Export till XLSX klar: {filename}")
-    return filename
+            cell = ws.cell(row=1, column=col_num, value=col)
+            cell.font = Font(bold=True, color="FFFFFFFF")
+            cell.fill = PatternFill("solid", fgColor="FF212121")
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = Border(bottom=Side(style="medium", color="FFB0BEC5"))
+        for row_num, row in enumerate(data_sorted, 2):
+            for col_num, col in enumerate(COLUMN_ORDER, 1):
+                ws.cell(row=row_num, column=col_num, value=row.get(col, ""))
+        for col_num, col in enumerate(COLUMN_ORDER, 1):
+            ws.column_dimensions[get_column_letter(col_num)].width = max(12, len(col) + 2)
+        wb.save(filename)
+        print(f"Export till XLSX klar: {filename}")
+        return filename
+    except Exception as e:
+        print(f"Fel vid sparande av XLSX: {e}")
+        logging.error(f"XLSX export failed: {e}")
+        return None
 
-def backup_export_to_csv(data, prefix="table_produkter_backup", timestamp=None):
+def backup_export_to_csv(data, prefix="table_produkter_backup", timestamp=None, sort_key="Namn"):
+    """
+    Export a list of product dicts to CSV in the backups/ folder, sorted by sort_key.
+    Returns the filename or None on error.
+    """
     COLUMN_ORDER = [
         "Namn",
         "Artikelnummer",
@@ -281,15 +298,24 @@ def backup_export_to_csv(data, prefix="table_produkter_backup", timestamp=None):
     if not timestamp:
         timestamp = get_timestamp()
     filename = get_backup_filename(prefix, "csv", timestamp)
-    with open(filename, "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=COLUMN_ORDER)
-        writer.writeheader()
-        for row in data:
-            writer.writerow({col: row.get(col, "") for col in COLUMN_ORDER})
-    print(f"Backup export till CSV klar: {filename}")
-    return filename
+    try:
+        data_sorted = sort_products(data, sort_key=sort_key)
+        with open(filename, "w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=COLUMN_ORDER)
+            writer.writeheader()
+            for row in data_sorted:
+                writer.writerow({col: row.get(col, "") for col in COLUMN_ORDER})
+        print(f"Backup export till CSV klar: {filename}")
+        return filename
+    except Exception as e:
+        print(f"Fel vid backup-CSV-export: {e}")
+        logging.error(f"CSV backup export failed: {e}")
+        return None
 
 def export_errors_to_xlsx(errors, prefix="table_produkter_errors", timestamp=None):
+    """
+    Export error list to the exports/ folder with timestamp.
+    """
     if not errors:
         print("Inga valideringsfel att exportera.")
         return None
@@ -297,19 +323,24 @@ def export_errors_to_xlsx(errors, prefix="table_produkter_errors", timestamp=Non
     if not timestamp:
         timestamp = get_timestamp()
     filename = get_export_filename(prefix, "xlsx", timestamp)
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Produktfel"
-    ws.append(["Index", "Feltyp", "Produktinfo"])
-    for idx, err in enumerate(errors):
-        ws.append([
-            idx + 1,
-            err.get("error_type", str(err.get("type", ""))),
-            str(err.get("product", err))
-        ])
-    wb.save(filename)
-    print(f"Export av fel till XLSX klar: {filename}")
-    return filename
+    try:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Produktfel"
+        ws.append(["Index", "Feltyp", "Produktinfo"])
+        for idx, err in enumerate(errors):
+            ws.append([
+                idx + 1,
+                err.get("error_type", str(err.get("type", ""))),
+                str(err.get("product", err))
+            ])
+        wb.save(filename)
+        print(f"Export av fel till XLSX klar: {filename}")
+        return filename
+    except Exception as e:
+        print(f"Fel vid sparande av fel-XLSX: {e}")
+        logging.error(f"XLSX error export failed: {e}")
+        return None
 
 def parse_measurements(text):
     """
