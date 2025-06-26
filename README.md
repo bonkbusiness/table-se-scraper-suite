@@ -16,6 +16,10 @@ Experimental scraper and data extractor for Table.se.
 **Notice:**  
 A major refactor of all export, backup, and error export logic has landed in the [`export-refactor`](https://github.com/bonkbusiness/table-se-scraper-suite/tree/export-refactor) branch (see [PR #1](https://github.com/bonkbusiness/table-se-scraper-suite/pull/1)).
 
+> All local export and backup logic is now centralized in `table_se_scraper.py`.  
+> Do **not** use or implement legacy exports in `table_se_export_utils.py`.  
+> For Google Drive, Email, S3, or Dropbox exports, use `table_se_export_utils.py`.
+
 - All exports, backups, and logs are now written to their own folders (`exports/`, `backups/`, `logs/`) with timestamped filenames.
 - Only the modern, timestamped, folder-based export/backup functions are used throughout the codebase—no more legacy export code.
 - Removed all legacy/duplicate export and backup functions.
