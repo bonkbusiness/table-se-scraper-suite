@@ -1,33 +1,45 @@
-"""
-exporter/csv.py
-
-Exports a list of product dictionaries to a CSV file.
-"""
-
 import csv
+import os
 
-def export_to_csv(products, filename):
+def export_to_csv(data, filename, sort_key="Namn"):
     """
-    Export a list of product dicts to a CSV file.
-
-    Args:
-        products (list of dict): The product data to export.
-        filename (str): Output .csv file path.
+    Export a list of product dicts to CSV, sorted by sort_key.
+    Returns the filename or None on error.
     """
-    if not products:
-        print("No products to export.")
-        return
-
-    # Collect all unique keys for header
-    headers = set()
-    for prod in products:
-        headers.update(prod.keys())
-    headers = sorted(headers)
-
-    with open(filename, mode="w", newline="", encoding="utf-8") as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=headers)
-        writer.writeheader()
-        for prod in products:
-            writer.writerow(prod)
-
-    print(f"Exported {len(products)} products to {filename}")
+    COLUMN_ORDER = [
+        "Namn",
+        "Artikelnummer",
+        "Färg",
+        "Material",
+        "Serie",
+        "Pris exkl. moms (värde)",
+        "Pris exkl. moms (enhet)",
+        "Pris inkl. moms (värde)",
+        "Pris inkl. moms (enhet)",
+        "Mått (text)",
+        "Längd (värde)", "Längd (enhet)",
+        "Bredd (värde)", "Bredd (enhet)",
+        "Höjd (värde)", "Höjd (enhet)",
+        "Djup (värde)", "Djup (enhet)",
+        "Diameter (värde)", "Diameter (enhet)",
+        "Kapacitet (värde)", "Kapacitet (enhet)",
+        "Volym (värde)", "Volym (enhet)",
+        "Produktbild-URL",
+        "Produkt-URL"
+    ]
+    if not data:
+        print("Ingen data att exportera till CSV.")
+        return None
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    try:
+        data_sorted = sorted(data, key=lambda x: x.get(sort_key, "").lower())
+        with open(filename, "w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=COLUMN_ORDER)
+            writer.writeheader()
+            for row in data_sorted:
+                writer.writerow({col: row.get(col, "") for col in COLUMN_ORDER})
+        print(f"Backup export till CSV klar: {filename}")
+        return filename
+    except Exception as e:
+        print(f"Fel vid backup-CSV-export: {e}")
+        return None
