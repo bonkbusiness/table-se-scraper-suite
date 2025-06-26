@@ -15,6 +15,33 @@ Supports:
 
 import os
 
+import csv
+
+def backup_export_to_csv(data, base_name="table_produkter_backup"):
+    """
+    Fallback to CSV export if XLSX fails.
+    """
+    if not data:
+        print("Ingen data att exportera till CSV.")
+        return None
+    filename = f"{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    headers = set()
+    for row in data:
+        headers.update(row.keys())
+    headers = sorted(headers)
+    try:
+        with open(filename, mode='w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=headers)
+            writer.writeheader()
+            for row in data:
+                writer.writerow(row)
+        print(f"Backup export till CSV klar: {filename}")
+        return filename
+    except Exception as e:
+        print(f"Fel vid backup-CSV-export: {e}")
+        logging.error(f"CSV backup export failed: {e}")
+        return None
+
 # 1. Google Drive (Colab/Jupyter)
 def export_to_gdrive(local_filepath, gdrive_dir='/content/drive/MyDrive/'):
     """
