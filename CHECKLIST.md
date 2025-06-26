@@ -29,37 +29,37 @@
 - [x] Docstrings for all public functions in `scraper/category.py`
 - [x] Major functions are self-explanatory with comments where needed
 
-### E. Product URL Extraction
+## E. Product URL Extraction
 
-- [ ] Extract all product URLs from every (sub)category, including pagination
-  - [ ] Traverse all category and subcategory pages
-  - [ ] Handle paginated category pages (`?page=2`, etc.)
-- [ ] Avoid duplicates and respect exclusions
-  - [ ] Only unique product URLs in the final result
-  - [ ] Exclude products/categories via `is_excluded()`
-- [ ] Modular, testable, and clean interface
-  - [ ] Functions in `scraper/product.py`
-  - [ ] Unit tests in `tests/test_product.py`
-  - [ ] Comprehensive docstrings
+- [x] Extract all product URLs from every (sub)category, including pagination
+  - [x] Traverse all category and subcategory pages
+  - [x] Handle paginated category pages (`?page=2`, etc.)
+- [x] Avoid duplicates and respect exclusions
+  - [x] Only unique product URLs in the final result
+  - [x] Exclude products/categories via `is_excluded()`
+- [x] Modular, testable, and clean interface
+  - [x] Functions in `scraper/product.py`
+  - [x] Unit tests in `tests/test_product.py`
+  - [x] Comprehensive docstrings
 
 ---
 
 ## Next Steps
 
-- [ ] Implement `extract_product_urls()` in `scraper/product.py`
-- [ ] Draft and implement tests in `tests/test_product.py`
-- [ ] Add docstrings & comments to all new functions
+- [x] Implement `extract_product_urls()` in `scraper/product.py` (covered by `extract_all_product_urls`)
+- [x] Draft and implement tests in `tests/test_product.py`
+- [x] Add docstrings & comments to all new functions
 - [ ] (Optional) Add tests for 404s/redirects/network errors
 - [ ] (Optional) Integrate tests in CI pipeline
 - [ ] (Optional) High-level documentation/readme for module usage
 
 ---
 
-### Product Data Extraction (Future/Planned)
+## Product Data Extraction (Future/Planned)
 
-- [ ] Extract all key fields: name, SKU, prices (incl/excl), materials, colors, sizes, images, etc.
-- [ ] Caching for previously scraped products
-- [ ] Handle and log missing/invalid fields gracefully
+- [x] Extract all key fields: name, SKU, prices (incl/excl), materials, colors, sizes, images, etc.
+- [x] Caching for previously scraped products
+- [x] Handle and log missing/invalid fields gracefully
 
 ### Parallelization & Robustness
 
