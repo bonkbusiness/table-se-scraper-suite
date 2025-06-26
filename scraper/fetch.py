@@ -8,6 +8,9 @@ from urllib3.util.retry import Retry
 thread_local = threading.local()
 
 def get_session():
+    """
+    Get a thread-local requests.Session with retry logic.
+    """
     if not hasattr(thread_local, "session"):
         session = requests.Session()
         retries = Retry(
@@ -22,6 +25,9 @@ def get_session():
     return thread_local.session
 
 def get_soup_with_retries(url: str, throttle: float = 0.7, max_retries: int = 3):
+    """
+    Fetch a URL and return a BeautifulSoup object, with retries and throttling.
+    """
     last_exc = None
     for attempt in range(max_retries):
         try:
@@ -32,8 +38,9 @@ def get_soup_with_retries(url: str, throttle: float = 0.7, max_retries: int = 3)
             return BeautifulSoup(resp.text, "html.parser")
         except Exception as e:
             last_exc = e
+            print(f"Fetch failed ({url}), attempt {attempt+1}/{max_retries}: {e}")
             time.sleep(1.5 * (attempt + 1))
     print(f"ERROR: Giving up on {url}: {last_exc}")
     return None
 
-get_soup = get_soup_with_retries
+get_soup = get_soup_with_retries  # Alias for convenience
