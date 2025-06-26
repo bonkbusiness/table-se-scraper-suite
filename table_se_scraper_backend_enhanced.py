@@ -47,6 +47,91 @@ def parallel_map(func, iterable, max_workers=8, desc="Working..."):
                 logger.warning(f"Exception in parallel_map: {e}")
     return results
 
+# ========================
+# 2a. Category extraction (3 levels deep)
+# ========================
+def extract_category_tree():
+    resp = requests.get(BASE_URL + "/produkter/")
+    soup = BeautifulSoup(resp.text, "html.parser")
+    main_categories = []
+    seen = set()
+    for a in soup.find_all("a", href=True):
+        href = a['href']
+        url = urljoin(BASE_URL, href)
+        if should_skip_url(url):
+            logprint(f"Skipping excluded main category (by URL): {url}")
+            continue
+        parsed = urlparse(href)
+        if parsed.path.startswith("/produkter/") and not "/page/" in parsed.path and not "/nyheter/" in parsed.path:
+            path_parts = [p for p in parsed.path.split("/") if p]
+            if len(path_parts) == 2 or (len(path_parts) == 3 and path_parts[2] == ""):
+                catname = a.get_text(strip=True)
+                if catname and catname != "HEM" and url not in seen:
+                    seen.add(url)
+                    main_categories.append({"name": catname, "url": url})
+    logprint(f"Hittade {len(main_categories)} huvudkategorier")
+
+    tree = []
+    for cat in main_categories:
+        if should_skip_url(cat["url"]):
+            logprint(f"Skipping excluded category (by URL): {cat['url']}")
+            continue
+        node = {"name": cat["name"], "url": cat["url"], "subs": []}
+        sub_soup = get_soup(cat["url"])
+        subcats = []
+        seen_sub = set()
+        if sub_soup:
+            for a in sub_soup.find_all("a", href=True):
+                href = a['href']
+                url_sub = urljoin(BASE_URL, href)
+                if should_skip_url(url_sub):
+                    logprint(f"Skipping excluded subcategory (by URL): {url_sub}")
+                    continue
+                parsed = urlparse(href)
+                path_parts = [p for p in parsed.path.split("/") if p]
+                if (
+                    len(path_parts) == 3 and
+                    path_parts[0] == "produkter" and
+                    path_parts[1] == urlparse(cat["url"]).path.split("/")[2]
+                ):
+                    catname = a.get_text(strip=True)
+                    if catname and catname != "HEM" and url_sub not in seen_sub:
+                        seen_sub.add(url_sub)
+                        subcats.append({"name": catname, "url": url_sub})
+        # Go one level deeper (sub-subcategories)
+        for sub in subcats:
+            if should_skip_url(sub["url"]):
+                logprint(f"Skipping excluded sub-subcategory (by URL): {sub['url']}")
+                continue
+            subsub_soup = get_soup(sub["url"])
+            subsubs = []
+            seen_subsub = set()
+            if subsub_soup:
+                for a in subsub_soup.find_all("a", href=True):
+                    href = a['href']
+                    url2 = urljoin(BASE_URL, href)
+                    if should_skip_url(url2):
+                        logprint(f"Skipping excluded sub-subcategory (by URL): {url2}")
+                        continue
+                    parsed2 = urlparse(href)
+                    path_parts2 = [p for p in parsed2.path.split("/") if p]
+                    if (
+                        len(path_parts2) == 4 and
+                        path_parts2[0] == "produkter" and
+                        path_parts2[1] == urlparse(cat["url"]).path.split("/")[2] and
+                        path_parts2[2] == urlparse(sub["url"]).path.split("/")[3]
+                    ):
+                        name2 = a.get_text(strip=True)
+                        if name2 and name2 != "HEM" and url2 not in seen_subsub:
+                            seen_subsub.add(url2)
+                            subsubs.append({"name": name2, "url": url2})
+            sub["subs"] = subsubs
+        node["subs"] = subcats
+        tree.append(node)
+    return tree
+
+
+
 # ================================
 # 3. Request Throttling & Retries
 # ================================
