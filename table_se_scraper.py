@@ -48,7 +48,19 @@ def normalize_text(text):
     text = text.translate(trans)
     text = unicodedata.normalize('NFKD', text).encode('ascii','ignore').decode()
     return text.strip()
-
+    
+def get_soup(url, timeout=20):
+    """
+    Downloads a URL and returns a BeautifulSoup object (or None if failed).
+    """
+    try:
+        resp = requests.get(url, timeout=timeout)
+        resp.raise_for_status()
+        return BeautifulSoup(resp.text, "html.parser")
+    except Exception as e:
+        logprint(f"Fel vid hämtning av {url}: {e}")
+        return None
+        
 def extract_only_numbers(text):
     """Extract only digits from the input string."""
     return "".join(filter(str.isdigit, str(text)))
