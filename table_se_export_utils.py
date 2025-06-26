@@ -2,45 +2,16 @@
 table_se_export_utils.py
 
 Export utilities for Table.se scraper suite.
-Keep all export-related options here. To enable/disable an export destination,
-just uncomment/comment the corresponding code block in your main script.
+This file is now reserved for optional exports (Google Drive, Email, S3, Dropbox).
+All local export and backup logic has been refactored and is available in table_se_scraper.py.
 
-Supports:
-- Local file export (Excel, already handled in export_to_xlsx)
-- Google Drive export (Colab/Jupyter)
-- Email export (yagmail)
-- S3 export (boto3)
-- Dropbox export (dropbox)
+If you need to export data locally, always use the new timestamped, folder-based functions from table_se_scraper.py!
 """
 
 import os
 
-import csv
-
-def backup_export_to_csv(data, base_name="table_produkter_backup"):
-    """
-    Fallback to CSV export if XLSX fails.
-    """
-    if not data:
-        print("Ingen data att exportera till CSV.")
-        return None
-    filename = f"{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    headers = set()
-    for row in data:
-        headers.update(row.keys())
-    headers = sorted(headers)
-    try:
-        with open(filename, mode='w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=headers)
-            writer.writeheader()
-            for row in data:
-                writer.writerow(row)
-        print(f"Backup export till CSV klar: {filename}")
-        return filename
-    except Exception as e:
-        print(f"Fel vid backup-CSV-export: {e}")
-        logging.error(f"CSV backup export failed: {e}")
-        return None
+# ---- REMOVE LEGACY LOCAL EXPORTS ----
+# (No backup_export_to_csv or similar functions here.)
 
 # 1. Google Drive (Colab/Jupyter)
 def export_to_gdrive(local_filepath, gdrive_dir='/content/drive/MyDrive/'):
@@ -61,19 +32,13 @@ def export_to_gdrive(local_filepath, gdrive_dir='/content/drive/MyDrive/'):
 # 2. Email export (yagmail)
 def export_via_email(local_filepath, recipient_email, subject="Table.se Export", body="Here is the exported file."):
     """
-    Emails the exported file as an attachment using yagmail.
+    Sends the exported file via email (requires yagmail).
     """
     try:
         import yagmail
-        # Set up your credentials as environment variables or directly here (not recommended for production)
-        yag = yagmail.SMTP(user=os.environ.get("YAGMAIL_USER"), password=os.environ.get("YAGMAIL_PASS"))
-        yag.send(
-            to=recipient_email,
-            subject=subject,
-            contents=body,
-            attachments=local_filepath
-        )
-        print(f"Emailed {local_filepath} to {recipient_email}")
+        yag = yagmail.SMTP()
+        yag.send(to=recipient_email, subject=subject, contents=body, attachments=local_filepath)
+        print(f"File sent to {recipient_email} via email.")
     except Exception as e:
         print(f"Could not send email: {e}")
 
