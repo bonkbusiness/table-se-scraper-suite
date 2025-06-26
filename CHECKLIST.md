@@ -61,7 +61,9 @@
 - [x] Caching for previously scraped products
 - [x] Handle and log missing/invalid fields gracefully
 
-### Parallelization & Robustness
+---
+
+### Backend Parallelization & Robustness
 
 - [ ] Scrape categories & products in parallel (threaded)
 - [ ] Retry failed requests, throttle as needed
