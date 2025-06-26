@@ -8,7 +8,6 @@
 # ========================
 import requests
 from bs4 import BeautifulSoup
-import os
 import re
 import unicodedata
 from datetime import datetime
@@ -16,14 +15,18 @@ from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from urllib.parse import urljoin, urlparse
+import logging
+import os
+import csv
+import traceback
 
 from exclusions import EXCLUDED_CATEGORIES, EXCLUDED_PRODUCTS
 from product_cache import get_cached_product, update_cache, hash_content
 from table_se_scraper_backend_enhanced import main_enhanced
 from table_se_scraper_performance import setup_logging, robust_scrape
 from table_se_smart_scanner import smart_scan_products
+
 setup_logging()
-import logging
 
 def logprint(msg):
     print(msg)
@@ -114,7 +117,6 @@ def export_to_xlsx(data, base_name="table_produkter"):
         row_idx = ws.max_row
         category = row.get("Category") or row.get("category") or ""
         subcategory = row.get("Subcategory") or row.get("subcategory") or ""
-        # pastel_color_for_category must be defined elsewhere in your codebase
         pastel_color = pastel_color_for_category(subcategory) if 'pastel_color_for_category' in globals() and pastel_color_for_category(subcategory) != "FFF5F5F5" else (pastel_color_for_category(category) if 'pastel_color_for_category' in globals() else "FFFFFFFF")
         for col_idx in range(1, len(headers) + 1):
             cell = ws.cell(row=row_idx, column=col_idx)
@@ -162,6 +164,8 @@ def safe_export_to_xlsx_with_colab_backup(data, base_name="table_produkter"):
             raise Exception("XLSX export failed, result file missing.")
     except Exception as e:
         print(f"XLSX-export misslyckades: {e}\nFörsöker backup till CSV...")
+        tb = traceback.format_exc()
+        logging.error(f"XLSX export failed with traceback:\n{tb}")
         backup_filename = os.path.join(export_dir, f"{base_name}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
         backup_result = backup_export_to_csv(data, backup_filename)
         if backup_result and os.path.exists(backup_result):
@@ -198,7 +202,6 @@ def export_errors_to_xlsx(errors, base_name="table_produkter_errors"):
     except Exception as e:
         print(f"Fel vid sparande av fel-XLSX: {e}")
         logging.error(f"XLSX error export failed: {e}")
-        # Backup to CSV for errors too
         backup_filename = os.path.join(export_dir, f"{base_name}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
         backup_result = backup_export_to_csv(errors, backup_filename)
         if backup_result:
@@ -663,29 +666,44 @@ def export_errors_to_xlsx(errors, base_name="table_produkter_errors"):
 # 7. Enhanced Main Entrypoint (Parallelized, Smart Scan, Separate Error XLSX)
 # ========================
 def enhanced_main_with_scan_and_error_file():
-    # --- FIX: Use main_enhanced for scraping, but handle export here ---
-    products = main_enhanced(
+    exported_file, fallback_used, error_traceback = main_enhanced(
         extract_category_tree_func=extract_category_tree,
         skip_func=should_skip,
         extract_func=extract_product_data,
-        export_func=lambda x: x,  # Return products directly
-        max_workers=8
+        export_func=export_to_xlsx,                  # main export
+        max_workers=8,
+        fallback_export_func=backup_export_to_csv    # fallback
     )
-    if not products:
-        logprint("Ingen data skrapades.")
+    if exported_file is None:
+        logprint("Ingen data skrapades eller exporten misslyckades helt.")
+        if error_traceback:
+            print("FEL OCH TRACEBACK:\n", error_traceback)
         return None, None
 
-    scanned_products, product_errors = smart_scan_products(products)
+    # If main_enhanced does not do smart scan, do it here:
+    try:
+        scanned_products, product_errors = smart_scan_products([])  # default empty
+        # If exported_file is a list (products), scan them
+        if isinstance(exported_file, list):
+            scanned_products, product_errors = smart_scan_products(exported_file)
+        elif isinstance(exported_file, str):
+            # Assume exported_file is the filename, skip scanning
+            scanned_products, product_errors = [], []
+    except Exception as e:
+        print("Fel vid smart scanning av produkter:", e)
+        scanned_products, product_errors = [], []
+
+    error_xlsx = None
     if product_errors:
         logprint(f"Smart scanner hittade {len(product_errors)} felaktiga produkter. Se logg och felrapport för detaljer.")
         error_xlsx = export_errors_to_xlsx(product_errors)
-    else:
-        error_xlsx = None
 
-    xlsx_file, fallback_used = safe_export_to_xlsx_with_colab_backup(scanned_products)
     if fallback_used:
-        print("Varning: Exporten gick till CSV istället för XLSX.")
-    return xlsx_file, error_xlsx
+        print("⚠️ Exporten gick till CSV istället för XLSX.")
+    if error_traceback:
+        print("❗ Fullständig felrapport:\n", error_traceback)
+
+    return exported_file, error_xlsx
 
 # ========================
 # 8. Run and download (Colab-friendly)
@@ -715,3 +733,4 @@ if __name__ == "__main__":
         print("Ingen produktfil skapades.")
     if not error_xlsx_path:
         print("Ingen felrapport skapades.")
+
