@@ -33,7 +33,9 @@ def logprint(msg):
     logging.info(msg)
 
 def should_skip(category_name):
-    return category_name in EXCLUDED_CATEGORIES
+    #return category_name in EXCLUDED_CATEGORIES
+    return False
+
 
 BASE_URL = "https://www.table.se"
 
