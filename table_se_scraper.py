@@ -20,7 +20,7 @@ import os
 import csv
 import traceback
 
-from exclusions import EXCLUDED_CATEGORIES, EXCLUDED_PRODUCTS
+from exclusions import EXCLUDED_URL_PREFIXES
 from product_cache import get_cached_product, update_cache, hash_content
 from table_se_scraper_backend_enhanced import main_enhanced
 from table_se_scraper_performance import setup_logging, robust_scrape
@@ -32,8 +32,10 @@ def logprint(msg):
     print(msg)
     logging.info(msg)
 
-def should_skip(category_name):
-    #return category_name in EXCLUDED_CATEGORIES
+def should_skip_url(url):
+    for prefix in EXCLUDED_URL_PREFIXES:
+        if url.startswith(prefix):
+            return True
     return False
 
 
@@ -283,6 +285,9 @@ def extract_category_tree():
     for a in soup.find_all("a", href=True):
         href = a['href']
         url = urljoin(BASE_URL, href)
+        if should_skip_url(url):
+            logprint(f"Skipping excluded main category (by URL): {url}")
+            continue
         parsed = urlparse(href)
         if parsed.path.startswith("/produkter/") and not "/page/" in parsed.path and not "/nyheter/" in parsed.path:
             path_parts = [p for p in parsed.path.split("/") if p]
@@ -295,6 +300,9 @@ def extract_category_tree():
 
     tree = []
     for cat in main_categories:
+        if should_skip_url(cat["url"]):
+            logprint(f"Skipping excluded category (by URL): {cat['url']}")
+            continue
         node = {"name": cat["name"], "url": cat["url"], "subs": []}
         sub_soup = get_soup(cat["url"])
         subcats = []
@@ -303,6 +311,9 @@ def extract_category_tree():
             for a in sub_soup.find_all("a", href=True):
                 href = a['href']
                 url_sub = urljoin(BASE_URL, href)
+                if should_skip_url(url_sub):
+                    logprint(f"Skipping excluded subcategory (by URL): {url_sub}")
+                    continue
                 parsed = urlparse(href)
                 path_parts = [p for p in parsed.path.split("/") if p]
                 if (
@@ -316,6 +327,9 @@ def extract_category_tree():
                         subcats.append({"name": catname, "url": url_sub})
         # Go one level deeper (sub-subcategories)
         for sub in subcats:
+            if should_skip_url(sub["url"]):
+                logprint(f"Skipping excluded sub-subcategory (by URL): {sub['url']}")
+                continue
             subsub_soup = get_soup(sub["url"])
             subsubs = []
             seen_subsub = set()
@@ -323,6 +337,9 @@ def extract_category_tree():
                 for a in subsub_soup.find_all("a", href=True):
                     href = a['href']
                     url2 = urljoin(BASE_URL, href)
+                    if should_skip_url(url2):
+                        logprint(f"Skipping excluded sub-subcategory (by URL): {url2}")
+                        continue
                     parsed2 = urlparse(href)
                     path_parts2 = [p for p in parsed2.path.split("/") if p]
                     if (
@@ -699,11 +716,13 @@ def backup_export_to_csv(data, base_name="export_backup"):
     return data
 
 def extract_products_from_category(category_url):
+    if should_skip_url(category_url):
+        logprint(f"Skipping excluded category (by URL): {category_url}")
+        return []
     soup = get_soup(category_url)
     if not soup:
         return []
     product_urls = []
-    # Page through if there are multiple pages
     next_page = True
     page_number = 1
     while next_page:
@@ -712,9 +731,11 @@ def extract_products_from_category(category_url):
             href = a.get("href")
             if href:
                 url = urljoin(BASE_URL, href)
+                if should_skip_url(url):
+                    logprint(f"Skipping excluded product (by URL): {url}")
+                    continue
                 if url not in product_urls:
                     product_urls.append(url)
-        # Look for next page
         next_btn = soup.select_one(".page-numbers .next")
         if next_btn and next_btn.get("href"):
             next_url = urljoin(BASE_URL, next_btn.get("href"))
@@ -725,6 +746,8 @@ def extract_products_from_category(category_url):
         else:
             next_page = False
     return product_urls
+
+# In category tree traversal (extract_category_tree), you can add similar checks before recursing/extracting:
 
 # ========================
 # 6. XLSX Exporter
@@ -953,7 +976,7 @@ def export_errors_to_xlsx(errors, base_name="table_produkter_errors"):
 def enhanced_main_with_scan_and_error_file():
     exported_file, fallback_used, error_traceback = main_enhanced(
         extract_category_tree_func=extract_category_tree,
-        skip_func=should_skip,
+        skip_func=should_skip_url(url),
         extract_func=extract_product_data,
         export_func=export_to_xlsx,                  # main export
         max_workers=8,
