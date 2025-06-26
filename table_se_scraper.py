@@ -445,19 +445,30 @@ def get_all_headers(data):
     rest = sorted(h for h in headers if h not in priority)
     return ordered + rest
 
-def get_all_headers(data):
+def backup_export_to_csv(data, base_name="table_produkter_backup"):
     """
-    Returns a list of all unique keys appearing in any dict in data, prioritizing main fields first.
+    Fallback to CSV export if XLSX fails.
     """
     if not data:
-        return []
+        print("Ingen data att exportera till CSV.")
+        return None
+    filename = f"{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     headers = set()
     for row in data:
         headers.update(row.keys())
-    priority = ["Category", "Subcategory", "Sub-Subcategory"]
-    ordered = [h for h in priority if h in headers]
-    rest = sorted(h for h in headers if h not in priority)
-    return ordered + rest
+    headers = sorted(headers)
+    try:
+        with open(filename, mode='w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=headers)
+            writer.writeheader()
+            for row in data:
+                writer.writerow(row)
+        print(f"Backup export till CSV klar: {filename}")
+        return filename
+    except Exception as e:
+        print(f"Fel vid backup-CSV-export: {e}")
+        logging.error(f"CSV backup export failed: {e}")
+        return None
 
 def export_to_xlsx(data, base_name="table_produkter"):
     if not data:
@@ -471,7 +482,7 @@ def export_to_xlsx(data, base_name="table_produkter"):
     headers = get_all_headers(data)
     ws.append(headers)
 
-    # Formatting headers (as before)
+    # Formatting headers
     for col in range(1, len(headers) + 1):
         cell = ws.cell(row=1, column=col)
         cell.font = Font(bold=True, color="FFFFFFFF")
@@ -484,6 +495,7 @@ def export_to_xlsx(data, base_name="table_produkter"):
         row_idx = ws.max_row
         category = row.get("Category") or row.get("category") or ""
         subcategory = row.get("Subcategory") or row.get("subcategory") or ""
+        # pastel_color_for_category must be defined elsewhere in your codebase
         pastel_color = pastel_color_for_category(subcategory) if pastel_color_for_category(subcategory) != "FFF5F5F5" else pastel_color_for_category(category)
         for col_idx in range(1, len(headers) + 1):
             cell = ws.cell(row=row_idx, column=col_idx)
@@ -510,6 +522,18 @@ def export_to_xlsx(data, base_name="table_produkter"):
         return None
     return filename
 
+def safe_export_to_xlsx_with_backup(data, base_name="table_produkter"):
+    """
+    Tries to export to XLSX, falls back to CSV if it fails.
+    Returns the filename and a flag indicating if fallback was used.
+    """
+    filename = export_to_xlsx(data, base_name)
+    if filename is not None:
+        return filename, False
+    print("XLSX-export misslyckades, försöker backup till CSV...")
+    backup_filename = backup_export_to_csv(data, base_name + "_backup")
+    return backup_filename, True if backup_filename else False
+
 def export_errors_to_xlsx(errors, base_name="table_produkter_errors"):
     if not errors:
         print("Inga valideringsfel att exportera.")
@@ -525,8 +549,18 @@ def export_errors_to_xlsx(errors, base_name="table_produkter_errors"):
             err.get("error_type", str(err.get("type", ""))),
             str(err.get("product", err))
         ])
-    wb.save(filename)
-    print(f"Export av fel till XLSX klar: {filename}")
+    try:
+        wb.save(filename)
+        print(f"Export av fel till XLSX klar: {filename}")
+    except Exception as e:
+        print(f"Fel vid sparande av fel-XLSX: {e}")
+        logging.error(f"XLSX error export failed: {e}")
+        # Backup to CSV for errors too
+        backup_filename = backup_export_to_csv(errors, base_name + "_backup")
+        if backup_filename:
+            print("Felrapport exporterades som CSV istället för XLSX.")
+            return backup_filename
+        return None
     return filename
 
 # ========================
@@ -552,7 +586,12 @@ def enhanced_main_with_scan_and_error_file():
     else:
         error_xlsx = None
 
-    xlsx_file = export_to_xlsx(scanned_products)
+    #xlsx_file = export_to_xlsx(scanned_products)
+    
+    xlsx_file, fallback_used = safe_export_to_xlsx_with_backup(scanned_products)
+    if fallback_used:
+    print("Varning: Resultat exporterades som CSV istället för XLSX på grund av problem.")
+    
     return xlsx_file, error_xlsx
 
 # ========================
