@@ -21,14 +21,52 @@ import csv
 import traceback
 import colorsys
 
-
 from exclusions import EXCLUDED_URL_PREFIXES
 from product_cache import get_cached_product, update_cache, hash_content
 from table_se_scraper_backend_enhanced import main_enhanced
-from table_se_scraper_performance import setup_logging, robust_scrape
+from table_se_scraper_performance import robust_scrape
 from table_se_smart_scanner import smart_scan_products
+# ========================
+# 2a. Output Directories & Naming
+# ========================
+EXPORT_DIR = "exports"
+BACKUP_DIR = "backups"
+LOG_DIR = "logs"
 
-setup_logging()
+def ensure_directories():
+    for d in [EXPORT_DIR, BACKUP_DIR, LOG_DIR]:
+        os.makedirs(d, exist_ok=True)
+
+def get_timestamp():
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+def get_export_filename(prefix="table_produkter", ext="xlsx", timestamp=None):
+    if not timestamp:
+        timestamp = get_timestamp()
+    return os.path.join(EXPORT_DIR, f"{prefix}_{timestamp}.{ext}")
+
+def get_backup_filename(prefix="table_produkter_backup", ext="csv", timestamp=None):
+    if not timestamp:
+        timestamp = get_timestamp()
+    return os.path.join(BACKUP_DIR, f"{prefix}_{timestamp}.{ext}")
+
+def get_log_filename(prefix="table_produkter", ext="log", timestamp=None):
+    if not timestamp:
+        timestamp = get_timestamp()
+    return os.path.join(LOG_DIR, f"{prefix}_{timestamp}.{ext}")
+
+def setup_logging(prefix="table_produkter", timestamp=None):
+    ensure_directories()
+    if not timestamp:
+        timestamp = get_timestamp()
+    log_file = get_log_filename(prefix, "log", timestamp)
+    logging.basicConfig(
+        level=logging.INFO,
+        filename=log_file,
+        filemode='a',
+        format='%(asctime)s %(levelname)s:%(message)s'
+    )
+    logging.getLogger().addHandler(logging.StreamHandler())
 
 def logprint(msg):
     print(msg)
@@ -39,7 +77,6 @@ def should_skip_url(url):
         if url.startswith(prefix):
             return True
     return False
-
 
 BASE_URL = "https://www.table.se"
 
@@ -168,17 +205,7 @@ def backup_export_to_csv(data, filename=None, base_name="table_produkter_backup"
         logging.error(f"CSV backup export failed: {e}")
         return None
 
-def export_to_xlsx(data, base_name="export"):
-    """
-    Export a list of product dicts to XLSX with sorting and color palette for categories.
-    Returns the filename.
-    """
-    from openpyxl import Workbook
-    from openpyxl.utils import get_column_letter
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-    from datetime import datetime
-    import os
-
+def export_to_xlsx(data, prefix="table_produkter", timestamp=None):
     COLUMN_ORDER = [
         "Namn",
         "Artikelnummer",
@@ -200,64 +227,32 @@ def export_to_xlsx(data, base_name="export"):
         "Produktbild-URL",
         "Produkt-URL"
     ]
-
     if not data:
         print("Ingen data att exportera till XLSX.")
         return None
-
-    # 1. Sorting
-    data_sorted = sort_products(data, sort_key="Namn")
-
-    # 2. Build palette
-    get_color = build_category_colors(data_sorted)
-
-    # 3. Create workbook
-    export_dir = "/content" if os.path.exists("/content") else "."
-    now = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = os.path.join(export_dir, f"{base_name}_{now}.xlsx")
+    ensure_directories()
+    if not timestamp:
+        timestamp = get_timestamp()
+    filename = get_export_filename(prefix, "xlsx", timestamp)
     wb = Workbook()
     ws = wb.active
     ws.title = "Produkter"
-
-    # Write header row
     for col_num, col in enumerate(COLUMN_ORDER, 1):
         cell = ws.cell(row=1, column=col_num, value=col)
         cell.font = Font(bold=True, color="FFFFFFFF")
         cell.fill = PatternFill("solid", fgColor="FF212121")
         cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.border = Border(bottom=Side(style="medium", color="FFB0BEC5"))
-
-    # Write data rows with coloring
-    for row_num, row in enumerate(data_sorted, 2):
+    for row_num, row in enumerate(data, 2):
         for col_num, col in enumerate(COLUMN_ORDER, 1):
             ws.cell(row=row_num, column=col_num, value=row.get(col, ""))
-        color = get_color(row)
-        # Style the row
-        for col_num in range(1, len(COLUMN_ORDER) + 1):
-            cell = ws.cell(row=row_num, column=col_num)
-            cell.fill = PatternFill("solid", fgColor=color)
-            cell.font = Font(color="FF212121")
-            cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-            cell.border = Border(
-                left=Side(style="thin", color="FFCFD8DC"),
-                right=Side(style="thin", color="FFCFD8DC"),
-                top=Side(style="thin", color="FFCFD8DC"),
-                bottom=Side(style="thin", color="FFCFD8DC"),
-            )
-
-    # Auto-width columns
     for col_num, col in enumerate(COLUMN_ORDER, 1):
         ws.column_dimensions[get_column_letter(col_num)].width = max(12, len(col) + 2)
-
     wb.save(filename)
     print(f"Export till XLSX klar: {filename}")
     return filename
 
-def backup_export_to_csv(data, base_name="export_backup"):
-    """
-    Export a list of product dicts to CSV with explicit column order.
-    Returns the filename.
-    """
+def backup_export_to_csv(data, prefix="table_produkter_backup", timestamp=None):
     COLUMN_ORDER = [
         "Namn",
         "Artikelnummer",
@@ -279,51 +274,42 @@ def backup_export_to_csv(data, base_name="export_backup"):
         "Produktbild-URL",
         "Produkt-URL"
     ]
-    now = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{base_name}_{now}.csv"
+    if not data:
+        print("Ingen data att exportera till CSV.")
+        return None
+    ensure_directories()
+    if not timestamp:
+        timestamp = get_timestamp()
+    filename = get_backup_filename(prefix, "csv", timestamp)
     with open(filename, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=COLUMN_ORDER)
         writer.writeheader()
         for row in data:
             writer.writerow({col: row.get(col, "") for col in COLUMN_ORDER})
+    print(f"Backup export till CSV klar: {filename}")
     return filename
 
-def safe_export_to_xlsx_with_colab_backup(data, base_name="table_produkter"):
-    """
-    Tries to export to XLSX, falls back to CSV if it fails.
-    Handles Colab environment gracefully and attempts download if in Colab.
-    Returns the filename and a flag indicating if fallback was used.
-    """
-    export_dir = "/content" if os.path.exists("/content") else "."
-    filename = os.path.join(export_dir, f"{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
-    try:
-        result = export_to_xlsx(data, base_name)
-        if result and os.path.exists(result):
-            try:
-                from google.colab import files
-                files.download(result)
-            except ImportError:
-                pass
-            return result, False
-        else:
-            raise Exception("XLSX export failed, result file missing.")
-    except Exception as e:
-        print(f"XLSX-export misslyckades: {e}\nFörsöker backup till CSV...")
-        tb = traceback.format_exc()
-        logging.error(f"XLSX export failed with traceback:\n{tb}")
-        backup_filename = os.path.join(export_dir, f"{base_name}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
-        backup_result = backup_export_to_csv(data, backup_filename)
-        if backup_result and os.path.exists(backup_result):
-            try:
-                from google.colab import files
-                files.download(backup_result)
-            except ImportError:
-                pass
-            print("Varning: Resultat exporterades som CSV istället för XLSX på grund av problem.")
-            return backup_result, True
-        else:
-            print("Backup-export misslyckades helt!")
-            return None, True
+def export_errors_to_xlsx(errors, prefix="table_produkter_errors", timestamp=None):
+    if not errors:
+        print("Inga valideringsfel att exportera.")
+        return None
+    ensure_directories()
+    if not timestamp:
+        timestamp = get_timestamp()
+    filename = get_export_filename(prefix, "xlsx", timestamp)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Produktfel"
+    ws.append(["Index", "Feltyp", "Produktinfo"])
+    for idx, err in enumerate(errors):
+        ws.append([
+            idx + 1,
+            err.get("error_type", str(err.get("type", ""))),
+            str(err.get("product", err))
+        ])
+    wb.save(filename)
+    print(f"Export av fel till XLSX klar: {filename}")
+    return filename
 
 def parse_measurements(text):
     """
@@ -1088,68 +1074,35 @@ def export_errors_to_xlsx(errors, base_name="table_produkter_errors"):
 # 7. Enhanced Main Entrypoint (Parallelized, Smart Scan, Separate Error XLSX)
 # ========================
 def enhanced_main_with_scan_and_error_file():
-    # Pass the skip function itself, not a call with an undefined variable!
+    ensure_directories()
+    timestamp = get_timestamp()
+    setup_logging(timestamp=timestamp)
     exported_file, fallback_used, error_traceback = main_enhanced(
         extract_category_tree_func=extract_category_tree,
-        skip_func=should_skip_url,  # FIXED LINE: pass the function, not should_skip_url(url)
+        skip_func=should_skip_url,
         extract_func=extract_product_data,
-        export_func=export_to_xlsx,                  # main export
+        export_func=lambda data: export_to_xlsx(data, timestamp=timestamp),
         max_workers=8,
-        fallback_export_func=backup_export_to_csv    # fallback
+        fallback_export_func=lambda data: backup_export_to_csv(data, timestamp=timestamp)
     )
-
-    # --- ADD DEBUGGING HERE ---
-    # Check what was returned from scraping before export
-    if isinstance(exported_file, list):
-        logging.warning(f"DEBUG: 'exported_file' is a list with {len(exported_file)} entries.")
-        if len(exported_file) > 0:
-            logging.warning(f"DEBUG: First product: {exported_file[0]}")
-        else:
-            logging.warning("DEBUG: 'exported_file' is an EMPTY list.")
-    elif exported_file is None:
-        logging.warning("DEBUG: 'exported_file' is None (scraping/export failed or returned nothing).")
-    else:
-        logging.warning(f"DEBUG: 'exported_file' type: {type(exported_file)}. Value: {exported_file}")
-
-    if exported_file is None or (isinstance(exported_file, list) and len(exported_file) == 0):
-        logprint("Ingen data skrapades eller exporten misslyckades helt.")
-        if error_traceback:
-            print("FEL OCH TRACEBACK:\n", error_traceback)
-        return None, None
-
-    # If the exported_file is a data list, log details
-    if isinstance(exported_file, list):
-        logging.info(f"DEBUG: Exported data is a list with {len(exported_file)} entries.")
-        if len(exported_file) > 0:
-            logging.info(f"DEBUG: First entry: {exported_file[0]}")
-        else:
-            logging.warning("DEBUG: Exported data list is empty.")
-    else:
-        logging.info(f"DEBUG: Exported data type is {type(exported_file)}. Value: {exported_file}")
-
-    # If main_enhanced does not do smart scan, do it here:
+    # ...rest of function unchanged, but pass timestamp to error export:
     try:
         scanned_products, product_errors = smart_scan_products([])  # default empty
-        # If exported_file is a list (products), scan them
         if isinstance(exported_file, list):
             scanned_products, product_errors = smart_scan_products(exported_file)
         elif isinstance(exported_file, str):
-            # Assume exported_file is the filename, skip scanning
             scanned_products, product_errors = [], []
     except Exception as e:
         print("Fel vid smart scanning av produkter:", e)
         scanned_products, product_errors = [], []
-
     error_xlsx = None
     if product_errors:
         logprint(f"Smart scanner hittade {len(product_errors)} felaktiga produkter. Se logg och felrapport för detaljer.")
-        error_xlsx = export_errors_to_xlsx(product_errors)
-
+        error_xlsx = export_errors_to_xlsx(product_errors, timestamp=timestamp)
     if fallback_used:
         print("⚠️ Exporten gick till CSV istället för XLSX.")
     if error_traceback:
         print("❗ Fullständig felrapport:\n", error_traceback)
-
     return exported_file, error_xlsx
 
 # ========================
