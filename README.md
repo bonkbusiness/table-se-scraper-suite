@@ -2,6 +2,12 @@
 
 Experimental scraper and data extractor for Table.se.
 
+## NOTICE: Deprecation
+
+> **This version of the Table.se Scraper Suite (pre-modularization) is now DEPRECATED.**
+>
+> Please use the new modularized structure (see the `modularized` branch or latest releases) for improved maintainability, flexibility, and future updates.
+
 ## Features
 
 - Scrapes product data from Table.se, including detailed measurements and metadata.
