@@ -41,6 +41,16 @@ Experimental scraper and data extractor for Table.se.
 
 ## 🔄 **Changelog**
 
+### [v17] 2025-06-26
+- **Major export/backup refactor!**
+- All exports, backups, and logs are now written to their own folders (`exports/`, `backups/`, `logs/`) with timestamped filenames.
+- Only the modern, timestamped, folder-based export/backup functions are used everywhere—no more legacy export code.
+- Removed all legacy/duplicate export and backup functions.
+- All error and fallback handling now uses these modern functions.
+- Data is always sorted by name before export.
+- The codebase is now more maintainable and robust, with clear file structure and improved error handling.
+- **No changes were made to scraping/parsing logic or styling**—these remain untouched.
+
 ### [v16] 2025-06-26
 - Added support for extracting **"Djup"** (depth) from product pages, including detection as both "Djup" and "D".
 - **Exports now include "Djup (värde)" and "Djup (enhet)"** in both XLSX and CSV files.
