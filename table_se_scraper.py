@@ -29,6 +29,7 @@ from table_se_scraper_backend_enhanced import (
     extract_product_data  # now this import will work!
 )
 
+from table_se_scraper_backend_enhanced import main_enhanced
 from table_se_scraper_performance import robust_scrape
 from table_se_smart_scanner import smart_scan_products
 
