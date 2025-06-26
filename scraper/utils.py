@@ -12,6 +12,10 @@ def normalize_text(text):
     return text.strip()
 
 def extract_only_number_value(text):
+    """
+    Extract a numeric value (as string, with dot as decimal separator) from a messy string.
+    Example: "1 234,00 kr" -> "1234.00"
+    """
     if not text:
         return ""
     cleaned = text.replace(" ", "").replace("\xa0", "")
@@ -20,9 +24,14 @@ def extract_only_number_value(text):
     return match.group(0) if match else ""
 
 def extract_only_numbers(text):
+    """Extract only digits from the input string."""
     return "".join(filter(str.isdigit, str(text)))
 
 def parse_value_unit(text):
+    """
+    Splits a string like '12 cm' or '10,5L' into ('12', 'cm') or ('10.5', 'L').
+    Returns ('', '') if nothing found or input is None/empty.
+    """
     if not text:
         return "", ""
     text = str(text).replace(",", ".")
@@ -33,6 +42,10 @@ def parse_value_unit(text):
     return "", ""
 
 def parse_measurements(matt_text):
+    """
+    Parses measurement text and returns a dict of measurement values.
+    Finds Längd, Bredd, Höjd, Djup (or D), Diameter.
+    """
     result = {}
     if not matt_text:
         return result
@@ -65,14 +78,17 @@ def parse_measurements(matt_text):
     return result
 
 def sort_products(data, sort_key="Namn"):
+    """Sort products by the given sort_key (default: 'Namn')"""
     return sorted(data, key=lambda x: x.get(sort_key, "").lower())
 
 def pastel_gradient_color(seed, total, idx, sat=0.25, light=0.85):
+    """Generate a pastel color in hex, distributed along a hue gradient."""
     h = (seed + idx/float(max(total,1))) % 1.0
     r, g, b = colorsys.hls_to_rgb(h, light, sat)
     return f"{int(r*255):02X}{int(g*255):02X}{int(b*255):02X}"
 
 def get_category_levels(row):
+    """Returns (parent, sub, subsub) for the row, empty string if missing."""
     return (
         row.get("Category", "") or row.get("category", ""),
         row.get("Subcategory", "") or row.get("subcategory", ""),
@@ -80,6 +96,7 @@ def get_category_levels(row):
     )
 
 def build_category_colors(data):
+    """Assign a unique pastel color for each category, subcategory, sub-subcategory."""
     parents = sorted(set(get_category_levels(row)[0] for row in data if get_category_levels(row)[0]))
     subcats = sorted(set((get_category_levels(row)[0], get_category_levels(row)[1]) for row in data if get_category_levels(row)[1]))
     subsubs = sorted(set(get_category_levels(row) for row in data if get_category_levels(row)[2]))
@@ -96,5 +113,5 @@ def build_category_colors(data):
             return f"FF{subcat_colors[(parent, sub)]}"
         elif parent and parent in parent_colors:
             return f"FF{parent_colors[parent]}"
-        return "FFFFFFFF"
+        return "FFFFFFFF"  # White fallback
     return get_color
