@@ -1,19 +1,14 @@
 from exclusions import is_excluded
-from scraper.fetch import get_soup
+from .utils import logprint
+from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
+import requests
 
 BASE_URL = "https://www.table.se"
 
 def build_category_tree():
-    """
-    Build the full category tree, then prune after.
-    Returns a list of main category nodes, each with nested subcategories.
-    """
-    soup = get_soup(BASE_URL + "/produkter/")
-    if not soup:
-        print("Failed to load main category page.")
-        return []
-
+    resp = requests.get(BASE_URL + "/produkter/")
+    soup = BeautifulSoup(resp.text, "html.parser")
     seen = set()
     main_categories = []
 
@@ -23,7 +18,6 @@ def build_category_tree():
         if url in seen:
             continue
         parsed = urlparse(href)
-        # Only include direct children of /produkter/
         if parsed.path.startswith("/produkter/") and not "/page/" in parsed.path and not "/nyheter/" in parsed.path:
             path_parts = [p for p in parsed.path.split("/") if p]
             if len(path_parts) == 2 or (len(path_parts) == 3 and path_parts[2] == ""):
@@ -32,20 +26,21 @@ def build_category_tree():
                     seen.add(url)
                     main_categories.append({"name": catname, "url": url})
 
-    tree = [build_node(cat['name'], cat['url'], seen) for cat in main_categories]
-    # Prune excluded nodes after full tree is built
-    pruned_tree = [prune_excluded_nodes(node) for node in tree if prune_excluded_nodes(node)]
-    return pruned_tree
+    logprint(f"Found {len(main_categories)} main categories")
+    tree = []
+    for cat in main_categories:
+        node = build_category_node(cat["name"], cat["url"], seen)
+        if node:
+            tree.append(node)
+    tree = [prune_excluded_nodes(node) for node in tree if prune_excluded_nodes(node)]
+    return tree
 
-def build_node(name, url, seen):
-    """
-    Recursively build a category node and its subcategories, using the global seen set.
-    """
+def build_category_node(name, url, seen):
     if url in seen:
         return None
     seen.add(url)
     node = {"name": name, "url": url, "subs": []}
-    soup = get_soup(url)
+    soup = BeautifulSoup(requests.get(url).text, "html.parser")
     if not soup:
         return node
     subcats = []
@@ -56,23 +51,18 @@ def build_node(name, url, seen):
             continue
         parsed = urlparse(href)
         path_parts = [p for p in parsed.path.split("/") if p]
-        # Heuristic: subcategory if path is one level deeper
         if parsed.path.startswith("/produkter/") and len(path_parts) > 2 and name.lower() not in ("hem",):
             subcat_name = a.get_text(strip=True)
             if subcat_name and subcat_name != "HEM":
-                subnode = build_node(subcat_name, sub_url, seen)
+                subnode = build_category_node(subcat_name, sub_url, seen)
                 if subnode:
                     subcats.append(subnode)
     node["subs"] = subcats
     return node
 
 def prune_excluded_nodes(node):
-    """
-    Recursively prune nodes whose URL matches an exclusion.
-    Keeps parents, but removes excluded children.
-    """
     if is_excluded(node["url"]):
-        print(f"Pruned excluded node: {node['url']}")
+        logprint(f"Pruned excluded node: {node['url']}")
         return None
     if "subs" in node:
         pruned_subs = []
