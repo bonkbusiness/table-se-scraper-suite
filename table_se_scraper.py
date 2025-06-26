@@ -346,6 +346,7 @@ def extract_category_tree():
 
 #import re
 
+# PATCH: Robust parse_value_unit for scraping
 def parse_value_unit(text):
     """
     Splits a string like '12 cm' or '10,5L' into ('12', 'cm') or ('10.5', 'L').
