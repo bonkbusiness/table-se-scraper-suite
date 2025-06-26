@@ -343,14 +343,17 @@ def extract_category_tree():
 # ========================
 # 5. Scraper functions (3-level deep)
 # ========================
+
+#import re
+
 def parse_value_unit(text):
     """
     Splits a string like '12 cm' or '10,5L' into ('12', 'cm') or ('10.5', 'L').
-    Returns ('', '') if nothing found.
+    Returns ('', '') if nothing found or input is None/empty.
     """
     if not text:
         return "", ""
-    text = text.replace(",", ".")
+    text = str(text).replace(",", ".")
     match = re.search(r"([\d.]+)\s*([a-zA-ZåäöÅÄÖ%]*)", text)
     if match:
         value, unit = match.group(1), match.group(2)
@@ -442,7 +445,6 @@ def extract_product_data(product_url):
     volym_text = info_dict.get('Volym', '')
 
     mått_dict = parse_measurements(matt_text)
-    # The following function must also be defined somewhere:
     diameter_v, diameter_e = parse_value_unit(diameter_text)
     if not diameter_v and mått_dict.get("Diameter (värde)"):
         diameter_v = mått_dict.get("Diameter (värde)")
