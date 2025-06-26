@@ -23,7 +23,11 @@ import colorsys
 
 from exclusions import EXCLUDED_URL_PREFIXES
 from product_cache import get_cached_product, update_cache, hash_content
-from table_se_scraper_backend_enhanced import main_enhanced
+from table_se_scraper_backend_enhanced import (
+    extract_category_tree,
+    should_skip_url,
+    extract_product_data
+)
 from table_se_scraper_performance import robust_scrape
 from table_se_smart_scanner import smart_scan_products
 
