@@ -2,6 +2,12 @@
 
 Experimental scraper and data extractor for Table.se.
 
+## NOTICE: Deprecation
+
+> **This version of the Table.se Scraper Suite (pre-modularization) is now DEPRECATED.**
+>
+> Please use the new modularized structure (see the `modularized` branch or latest releases) for improved maintainability, flexibility, and future updates.
+
 ## Features
 
 - Scrapes product data from Table.se, including detailed measurements and metadata.
@@ -63,6 +69,32 @@ If you are depending on legacy export/backup code or direct file paths, **please
 ---
 
 ## 🔄 **Changelog**
+
+## Changelog
+
+### [Unreleased]
+- **Refactored exclusions logic:**  
+  - Exclusion (skipping URLs/categories) logic was improved to avoid exclusion loops.
+  - All exclusion logic is now handled through a single function (`should_skip_url`) using a list of URL prefixes (`EXCLUDED_URL_PREFIXES`) imported from `exclusions.py`.
+  - The `should_skip_url` function is now used at all relevant places for category and product exclusion.
+  - Duplicated or conflicting `should_skip_url` definitions were removed.
+  - The handling of "seen" sets for URLs was unified, so each URL is only processed once per level, reducing the risk of infinite loops.
+
+- **Improved category tree traversal:**  
+  - Refactored the category tree extraction to ensure that exclusion is checked before recursion, and that the tree does not revisit or reprocess URLs already seen.
+  - Added logging for every skipped or excluded category, subcategory, or sub-subcategory.
+  - Ensured that the main category processing loop does not prematurely mark all categories as "seen" (fixes the bug where all were skipped).
+
+- **Enhanced maintainability:**  
+  - Removed unused or redundant functions, such as the unused sample `traverse` function.
+  - Streamlined the code in `table_se_scraper_backend_enhanced.py` for clarity.
+
+- **Improved logging:**  
+  - Added and improved log statements for debugging exclusion and tree traversal, including explicit prints for pruned/excluded nodes.
+
+- **General bugfixes:**  
+  - Fixed a bug where all main categories were marked as "seen", causing the scraper to skip everything.
+  - Fixed logic errors leading to empty or incomplete category trees.
 
 ### [v17] 2025-06-26
 - **Major export/backup refactor!**
