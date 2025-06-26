@@ -351,10 +351,18 @@ def extract_category_tree():
 # 5. Scraper functions (3-level deep)
 # ========================
 def extract_product_data(product_url):
-    soup = get_soup(product_url)
+    logging.info(f"Extracting: {product_url}")
+    # ... your extraction code ...
     if not soup:
-        logprint(f"Kunde inte ladda produkt: {product_url}")
+        logging.warning(f"Soup is None for {product_url}")
         return None
+    # ... rest ...
+    if not some_required_field:
+        logging.warning(f"Required field missing for {product_url}")
+        return None
+    # At the end:
+    logging.info(f"Product extracted OK: {product_url}")
+    return data
 
     # Artikelnummer: <strong> inside .woocommerce-product-details__short-description
     short_desc = soup.select_one(".woocommerce-product-details__short-description")
