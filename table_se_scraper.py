@@ -345,7 +345,7 @@ def extract_category_tree():
 # ========================
 def extract_product_data(product_url):
     logging.info(f"Extracting: {product_url}")
-    # ... your extraction code ...
+    soup = get_soup(product_url)  # <--- Make sure this is present!
     if not soup:
         logging.warning(f"Soup is None for {product_url}")
         return None
