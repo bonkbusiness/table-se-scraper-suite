@@ -1,10 +1,55 @@
-# Table.se Scraper Suite
+# table-se-scraper-suite
 
-A modular, robust, and production-ready scraper for [Table.se](https://www.table.se), featuring interactive CLI, blazing-fast parallel scraping, smart validation, rich exports, and beautiful, developer-friendly logging.
+Experimental scraper and data extractor for Table.se.
 
+## Features
+
+- Scrapes product data from Table.se, including detailed measurements and metadata.
+- Caching system to avoid redundant network requests.
+- Exports data to XLSX and CSV with customizable column order.
+- Extracts and exports advanced product details, including dimensions, material, series, and more.
+
+## ✨ **What’s New?**
+
+- **Supercharged Logging**:  
+  - Console logs are now colorful, emoji-rich, and show module/line number for easier debugging.
+  - Logs are also written to `scraper.log` for post-run analysis.
+- **Centralized Logging Setup**:  
+  - `setup_logging()` in `table_se_scraper_performance.py` sets up all logging with one call—no more repeated boilerplate!
+- **Parallel Scraping**:  
+  - Backend now supports robust, multi-threaded scraping for speed and reliability.
+- **Smart Data Validation**:  
+  - `table_se_smart_scanner.py` checks all products for missing or suspicious data, price outliers, etc.
+- **Separate Error Exports**:  
+  - Validation errors/anomalies are now exported into a dedicated XLSX file.
+- **Exclusions Handling**:  
+  - `exclusions.py` allows you to define product/category exclusions, or other filtering logic.
+- **Highly Modular**:  
+  - Each feature lives in its own file, so you can mix, match, or extend with ease.
+- **Colab-Friendly**:  
+  - Tips and code snippets for running in Google Colab are included below.
+- **Ready for CI/Automation**:  
+  - Designed to run in notebooks, scripts, or automated pipelines.
+
+- **Added support for "Djup" (Depth) dimension:** Now extracts "Djup" or "D" from product pages and includes it in exports.
+- **Reordered export columns:** You can now control the order of columns in both XLSX and CSV exports.
+- **Robust value/unit parsing:** Improved handling of measurements (e.g., "12 cm", "10,5L") for all relevant fields.
+- **Bugfix:** Ensured `parse_value_unit` is always defined and available regardless of module import order or reloads.
+- **Improved modularity:** All export and extraction logic explicitly includes new and existing data points for consistency.
+  
 ---
 
 ## 🔄 **Changelog**
+
+### [v16] 2025-06-26
+- Added support for extracting **"Djup"** (depth) from product pages, including detection as both "Djup" and "D".
+- **Exports now include "Djup (värde)" and "Djup (enhet)"** in both XLSX and CSV files.
+- **Explicit, customizable column order** for all exports (XLSX and CSV); columns are now consistently ordered and easier to manage.
+- Improved and robust value/unit parsing for all relevant fields, including fallback/flexible handling.
+- Fixed: `parse_value_unit` is now always defined and robust to import/reload issues.
+- Improved measurement extraction logic for all relevant fields (length, width, height, depth, etc).
+- Reordered export columns for clearer data presentation.
+- Updated documentation to reflect new fields and export structure.
 
 ### [v15] 2025-06-25
 - Main script now outputs **two XLSX files**: one for products, one for validation errors (if any).
@@ -31,30 +76,6 @@ A modular, robust, and production-ready scraper for [Table.se](https://www.table
 
 ---
 
-## ✨ **What’s New?**
-
-- **Supercharged Logging**:  
-  - Console logs are now colorful, emoji-rich, and show module/line number for easier debugging.
-  - Logs are also written to `scraper.log` for post-run analysis.
-- **Centralized Logging Setup**:  
-  - `setup_logging()` in `table_se_scraper_performance.py` sets up all logging with one call—no more repeated boilerplate!
-- **Parallel Scraping**:  
-  - Backend now supports robust, multi-threaded scraping for speed and reliability.
-- **Smart Data Validation**:  
-  - `table_se_smart_scanner.py` checks all products for missing or suspicious data, price outliers, etc.
-- **Separate Error Exports**:  
-  - Validation errors/anomalies are now exported into a dedicated XLSX file.
-- **Exclusions Handling**:  
-  - `exclusions.py` allows you to define product/category exclusions, or other filtering logic.
-- **Highly Modular**:  
-  - Each feature lives in its own file, so you can mix, match, or extend with ease.
-- **Colab-Friendly**:  
-  - Tips and code snippets for running in Google Colab are included below.
-- **Ready for CI/Automation**:  
-  - Designed to run in notebooks, scripts, or automated pipelines.
-
----
-
 ## 🗂️ **File Overview**
 
 | File                                | Purpose/Description                                                                                   |
@@ -71,6 +92,30 @@ A modular, robust, and production-ready scraper for [Table.se](https://www.table
 | `requirements.txt`                  | All required Python packages for easy setup.                                                         |
 
 ---
+
+## Export Columns
+
+The following columns are included in the export (in order):
+
+- Namn
+- Artikelnummer
+- Färg
+- Material
+- Serie
+- Pris exkl. moms (värde)
+- Pris exkl. moms (enhet)
+- Pris inkl. moms (värde)
+- Pris inkl. moms (enhet)
+- Mått (text)
+- Längd (värde), Längd (enhet)
+- Bredd (värde), Bredd (enhet)
+- Höjd (värde), Höjd (enhet)
+- Djup (värde), Djup (enhet)
+- Diameter (värde), Diameter (enhet)
+- Kapacitet (värde), Kapacitet (enhet)
+- Volym (värde), Volym (enhet)
+- Produktbild-URL
+- Produkt-URL
 
 ## 🚀 **Quickstart**
 
