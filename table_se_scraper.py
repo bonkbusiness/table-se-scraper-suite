@@ -8,6 +8,7 @@
 # ========================
 import requests
 from bs4 import BeautifulSoup
+import os
 import re
 import unicodedata
 from datetime import datetime
@@ -44,108 +45,167 @@ def normalize_text(text):
 
 def extract_only_numbers(text):
     """Extract only digits from the input string."""
-    if not text:
-        return ""
-    return "".join(re.findall(r"\d+", text))
+    return "".join(filter(str.isdigit, str(text)))
 
-def extract_only_number_value(text):
-    """Extracts only the number (integer or decimal) and removes negatives."""
-    if not text:
-        return ""
-    # Replace comma with dot
-    text = text.replace(",", ".")
-    # Find all positive numbers (integer or decimal, ignore negative sign)
-    matches = re.findall(r"\d+(?:\.\d+)?", text)
-    if matches:
-        # Join if there are multiple number groups (e.g., "1 299,00" or "1 299.00")
-        return "".join(matches)
-    return ""
+def get_all_headers(data):
+    """
+    Returns a list of all unique keys appearing in any dict in data, prioritizing main fields first.
+    """
+    if not data:
+        return []
+    headers = set()
+    for row in data:
+        headers.update(row.keys())
+    priority = ["Category", "Subcategory", "Sub-Subcategory"]
+    ordered = [h for h in priority if h in headers]
+    rest = sorted(h for h in headers if h not in priority)
+    return ordered + rest
 
-def parse_measurements(text):
-    """Parse measurements, mapping L/D/B/H to full Swedish names and cm, ignoring negatives."""
-    result = {
-        "Mått (text)": text,
-        "Längd (värde)": "", "Längd (enhet)": "",
-        "Bredd (värde)": "", "Bredd (enhet)": "",
-        "Höjd (värde)": "", "Höjd (enhet)": "",
-        "Diameter (värde)": "", "Diameter (enhet)": "",
-    }
-    if not text:
-        return result
-    # Replace minus with nothing
-    clean_text = text.replace("-", "")
-    # Standardize cm
-    clean_text = re.sub(r"\bcentimeter\b", "cm", clean_text, flags=re.IGNORECASE)
-    # Replace L/D/B/H with full names (Swedish)
-    label_map = {"L": "Längd", "D": "Djup", "B": "Bredd", "H": "Höjd"}
-    # Pattern: (L|D|B|H) num [x ...] cm
-    parts = re.findall(r"([LDBH])\s*([0-9]+(?:[.,][0-9]+)?)", clean_text)
-    unit = "cm" if "cm" in clean_text else ""
-    for short, val in parts:
-        full = label_map.get(short)
-        if full:
-            result[f"{full} (värde)"] = re.sub(r"[^\d.]", "", val)
-            result[f"{full} (enhet)"] = unit
-    # Also handle Diameter
-    m_dia = re.match(r"[ØO]\s*\.?\s*(\d+(?:[.,]\d+)?)\s*([a-zA-Z]+)", clean_text)
-    if m_dia:
-        result["Diameter (värde)"], result["Diameter (enhet)"] = m_dia.groups()
-        # Remove minus if present
-        result["Diameter (värde)"] = result["Diameter (värde)"].replace("-", "")
-    # Fallback to old patterns if needed
-    if not any(result[f"{label} (värde)"] for label in ["Längd", "Djup", "Bredd", "Höjd", "Diameter"]):
-        # Try old logic as fallback
-        m3 = re.match(r"(\d+)[x×](\d+)[x×](\d+)\s*([a-zA-Z]+)", clean_text)
-        if m3:
-            result["Längd (värde)"], result["Bredd (värde)"], result["Höjd (värde)"], enhet = m3.groups()
-            result["Längd (enhet)"] = result["Bredd (enhet)"] = result["Höjd (enhet)"] = enhet
-        else:
-            m_single = re.match(r"(Längd|Bredd|Höjd|Diameter|Djup)?\s*:?\.?\s*(\d+)\s*([a-zA-Z]+)", clean_text, re.IGNORECASE)
-            if m_single:
-                label, value, enhet = m_single.groups()
-                if label:
-                    label = label.capitalize()
-                    result[f"{label} (värde)"] = value
-                    result[f"{label} (enhet)"] = enhet
-                else:
-                    result["Längd (värde)"] = value
-                    result["Längd (enhet)"] = enhet
-    # Remove negatives if any (should be already handled)
-    for key in result:
-        if "värde" in key and result[key]:
-            result[key] = result[key].replace("-", "")
-    return result
-
-def parse_value_unit(text):
-    val_unit = re.match(r"^\s*([\d.,]+)\s*([^\d\s]+.*)?$", text or "")
-    if val_unit:
-        value, unit = val_unit.groups()
-        value = value.replace(",", ".")
-        return value, (unit or "").strip()
-    return "", ""
-
-def should_skip(catname):
-    EXCLUDE_NORMALIZED = [normalize_text(x) for x in EXCLUDED_CATEGORIES]
-    return normalize_text(catname) in EXCLUDE_NORMALIZED
-
-def should_skip_product(product_data):
-    namn = product_data.get("Namn", "")
-    artikelnummer = product_data.get("Artikelnummer", "")
-    produkturl = product_data.get("Produkt-URL", "")
-    for excl in EXCLUDED_PRODUCTS:
-        if excl in namn or excl in artikelnummer or excl in produkturl:
-            return True
-    return False
-
-def get_soup(url):
-    logprint(f"Hämtar: {url}")
-    try:
-        resp = requests.get(url, timeout=20)
-        resp.raise_for_status()
-        return BeautifulSoup(resp.text, "html.parser")
-    except Exception as e:
-        logprint(f"Kunde inte hämta {url}: {e}")
+def backup_export_to_csv(data, filename=None, base_name="table_produkter_backup"):
+    """
+    Fallback to CSV export if XLSX fails.
+    """
+    if not data:
+        print("Ingen data att exportera till CSV.")
         return None
+    if filename is None:
+        export_dir = "/content" if os.path.exists("/content") else "."
+        filename = os.path.join(export_dir, f"{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+    headers = set()
+    for row in data:
+        headers.update(row.keys())
+    headers = sorted(headers)
+    try:
+        with open(filename, mode='w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=headers)
+            writer.writeheader()
+            for row in data:
+                writer.writerow(row)
+        print(f"Backup export till CSV klar: {filename}")
+        return filename
+    except Exception as e:
+        print(f"Fel vid backup-CSV-export: {e}")
+        logging.error(f"CSV backup export failed: {e}")
+        return None
+
+def export_to_xlsx(data, base_name="table_produkter"):
+    if not data:
+        print("Ingen data att exportera till XLSX.")
+        return None
+    export_dir = "/content" if os.path.exists("/content") else "."
+    filename = os.path.join(export_dir, f"{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Produkter"
+
+    headers = get_all_headers(data)
+    ws.append(headers)
+
+    # Formatting headers
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col)
+        cell.font = Font(bold=True, color="FFFFFFFF")
+        cell.fill = PatternFill("solid", fgColor="FF212121")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = Border(bottom=Side(style="medium", color="FFB0BEC5"))
+
+    for row in data:
+        ws.append([row.get(h, "") for h in headers])
+        row_idx = ws.max_row
+        category = row.get("Category") or row.get("category") or ""
+        subcategory = row.get("Subcategory") or row.get("subcategory") or ""
+        # pastel_color_for_category must be defined elsewhere in your codebase
+        pastel_color = pastel_color_for_category(subcategory) if 'pastel_color_for_category' in globals() and pastel_color_for_category(subcategory) != "FFF5F5F5" else (pastel_color_for_category(category) if 'pastel_color_for_category' in globals() else "FFFFFFFF")
+        for col_idx in range(1, len(headers) + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.fill = PatternFill("solid", fgColor=pastel_color)
+            cell.font = Font(color="FF212121")
+            cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            cell.border = Border(
+                left=Side(style="thin", color="FFCFD8DC"),
+                right=Side(style="thin", color="FFCFD8DC"),
+                top=Side(style="thin", color="FFCFD8DC"),
+                bottom=Side(style="thin", color="FFCFD8DC"),
+            )
+
+    for col in ws.columns:
+        max_length = max(len(str(cell.value) or "") for cell in col)
+        ws.column_dimensions[col[0].column_letter].width = max_length + 6
+
+    try:
+        wb.save(filename)
+        print(f"Export till XLSX klar: {filename}")
+    except Exception as e:
+        print(f"Fel vid sparande av XLSX: {e}")
+        logging.error(f"XLSX export failed: {e}")
+        return None
+    return filename
+
+def safe_export_to_xlsx_with_colab_backup(data, base_name="table_produkter"):
+    """
+    Tries to export to XLSX, falls back to CSV if it fails.
+    Handles Colab environment gracefully and attempts download if in Colab.
+    Returns the filename and a flag indicating if fallback was used.
+    """
+    export_dir = "/content" if os.path.exists("/content") else "."
+    filename = os.path.join(export_dir, f"{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+    try:
+        result = export_to_xlsx(data, base_name)
+        if result and os.path.exists(result):
+            try:
+                from google.colab import files
+                files.download(result)
+            except ImportError:
+                pass
+            return result, False
+        else:
+            raise Exception("XLSX export failed, result file missing.")
+    except Exception as e:
+        print(f"XLSX-export misslyckades: {e}\nFörsöker backup till CSV...")
+        backup_filename = os.path.join(export_dir, f"{base_name}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+        backup_result = backup_export_to_csv(data, backup_filename)
+        if backup_result and os.path.exists(backup_result):
+            try:
+                from google.colab import files
+                files.download(backup_result)
+            except ImportError:
+                pass
+            print("Varning: Resultat exporterades som CSV istället för XLSX på grund av problem.")
+            return backup_result, True
+        else:
+            print("Backup-export misslyckades helt!")
+            return None, True
+
+def export_errors_to_xlsx(errors, base_name="table_produkter_errors"):
+    if not errors:
+        print("Inga valideringsfel att exportera.")
+        return None
+    export_dir = "/content" if os.path.exists("/content") else "."
+    filename = os.path.join(export_dir, f"{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Produktfel"
+    ws.append(["Index", "Feltyp", "Produktinfo"])
+    for idx, err in enumerate(errors):
+        ws.append([
+            idx + 1,
+            err.get("error_type", str(err.get("type", ""))),
+            str(err.get("product", err))
+        ])
+    try:
+        wb.save(filename)
+        print(f"Export av fel till XLSX klar: {filename}")
+    except Exception as e:
+        print(f"Fel vid sparande av fel-XLSX: {e}")
+        logging.error(f"XLSX error export failed: {e}")
+        # Backup to CSV for errors too
+        backup_filename = os.path.join(export_dir, f"{base_name}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+        backup_result = backup_export_to_csv(errors, backup_filename)
+        if backup_result:
+            print("Felrapport exporterades som CSV istället för XLSX.")
+            return backup_result
+        return None
+    return filename
 
 # ========================
 # 4. Category extraction (3 levels deep)
@@ -522,6 +582,42 @@ def export_to_xlsx(data, base_name="table_produkter"):
         return None
     return filename
 
+def safe_export_to_xlsx_with_colab_backup(data, base_name="table_produkter"):
+    """
+    Tries to export to XLSX, falls back to CSV if it fails.
+    Handles Colab environment gracefully and attempts download if in Colab.
+    Returns the filename and a flag indicating if fallback was used.
+    """
+    # Always export to /content in Colab
+    export_dir = "/content" if os.path.exists("/content") else "."
+    filename = os.path.join(export_dir, f"{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+    try:
+        result = export_to_xlsx(data, base_name)
+        if result and os.path.exists(result):
+            try:
+                from google.colab import files
+                files.download(result)
+            except ImportError:
+                pass
+            return result, False
+        else:
+            raise Exception("XLSX export failed, result file missing.")
+    except Exception as e:
+        print(f"XLSX-export misslyckades: {e}\nFörsöker backup till CSV...")
+        backup_filename = os.path.join(export_dir, f"{base_name}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+        backup_result = backup_export_to_csv(data, backup_filename)
+        if backup_result and os.path.exists(backup_result):
+            try:
+                from google.colab import files
+                files.download(backup_result)
+            except ImportError:
+                pass
+            print("Varning: Resultat exporterades som CSV istället för XLSX på grund av problem.")
+            return backup_result, True
+        else:
+            print("Backup-export misslyckades helt!")
+            return None, True
+
 def safe_export_to_xlsx_with_backup(data, base_name="table_produkter"):
     """
     Tries to export to XLSX, falls back to CSV if it fails.
@@ -586,12 +682,9 @@ def enhanced_main_with_scan_and_error_file():
     else:
         error_xlsx = None
 
-    #xlsx_file = export_to_xlsx(scanned_products)
-    
-    xlsx_file, fallback_used = safe_export_to_xlsx_with_backup(scanned_products)
+    xlsx_file, fallback_used = safe_export_to_xlsx_with_colab_backup(scanned_products)
     if fallback_used:
-    print("Varning: Resultat exporterades som CSV istället för XLSX på grund av problem.")
-    
+        print("Varning: Exporten gick till CSV istället för XLSX.")
     return xlsx_file, error_xlsx
 
 # ========================
