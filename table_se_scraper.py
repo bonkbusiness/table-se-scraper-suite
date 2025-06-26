@@ -19,6 +19,8 @@ import logging
 import os
 import csv
 import traceback
+import colorsys
+
 
 from exclusions import EXCLUDED_URL_PREFIXES
 from product_cache import get_cached_product, update_cache, hash_content
@@ -52,6 +54,44 @@ def normalize_text(text):
     text = text.translate(trans)
     text = unicodedata.normalize('NFKD', text).encode('ascii','ignore').decode()
     return text.strip()
+def sort_products(data, sort_key="Namn"):
+    """Sorts products by the given sort_key (default: 'Namn')"""
+    return sorted(data, key=lambda x: x.get(sort_key, "").lower())
+
+def pastel_gradient_color(seed, total, idx, sat=0.25, light=0.85):
+    """Generate a pastel color in hex, distributed along a hue gradient."""
+    h = (seed + idx/float(max(total,1))) % 1.0
+    r, g, b = colorsys.hls_to_rgb(h, light, sat)
+    return f"{int(r*255):02X}{int(g*255):02X}{int(b*255):02X}"
+
+def get_category_levels(row):
+    """Returns (parent, sub, subsub) for the row, empty string if missing."""
+    return (
+        row.get("Category", "") or row.get("category", ""),
+        row.get("Subcategory", "") or row.get("subcategory", ""),
+        row.get("Sub-Subcategory", "") or row.get("sub-subcategory", ""),
+    )
+
+def build_category_colors(data):
+    """Assign a unique pastel color for each category, subcategory, sub-subcategory."""
+    parents = sorted(set(get_category_levels(row)[0] for row in data if get_category_levels(row)[0]))
+    subcats = sorted(set((get_category_levels(row)[0], get_category_levels(row)[1]) for row in data if get_category_levels(row)[1]))
+    subsubs = sorted(set(get_category_levels(row) for row in data if get_category_levels(row)[2]))
+
+    parent_colors = {cat: pastel_gradient_color(0.05, len(parents), idx) for idx, cat in enumerate(parents)}
+    subcat_colors = {cat: pastel_gradient_color(0.3, len(subcats), idx) for idx, cat in enumerate(subcats)}
+    subsub_colors = {cat: pastel_gradient_color(0.6, len(subsubs), idx) for idx, cat in enumerate(subsubs)}
+
+    def get_color(row):
+        parent, sub, subsub = get_category_levels(row)
+        if subsub and (parent, sub, subsub) in subsub_colors:
+            return f"FF{subsub_colors[(parent, sub, subsub)]}"
+        elif sub and (parent, sub) in subcat_colors:
+            return f"FF{subcat_colors[(parent, sub)]}"
+        elif parent and parent in parent_colors:
+            return f"FF{parent_colors[parent]}"
+        return "FFFFFFFF"  # White fallback
+    return get_color
     
 def get_soup(url, timeout=20):
     """
@@ -128,11 +168,17 @@ def backup_export_to_csv(data, filename=None, base_name="table_produkter_backup"
         logging.error(f"CSV backup export failed: {e}")
         return None
 
-def export_to_xlsx(data, base_name="table_produkter"):
+def export_to_xlsx(data, base_name="export"):
     """
-    Export a list of product dicts to XLSX with explicit column order.
+    Export a list of product dicts to XLSX with sorting and color palette for categories.
     Returns the filename.
     """
+    from openpyxl import Workbook
+    from openpyxl.utils import get_column_letter
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from datetime import datetime
+    import os
+
     COLUMN_ORDER = [
         "Namn",
         "Artikelnummer",
@@ -158,25 +204,38 @@ def export_to_xlsx(data, base_name="table_produkter"):
     if not data:
         print("Ingen data att exportera till XLSX.")
         return None
+
+    # 1. Sorting
+    data_sorted = sort_products(data, sort_key="Namn")
+
+    # 2. Build palette
+    get_color = build_category_colors(data_sorted)
+
+    # 3. Create workbook
     export_dir = "/content" if os.path.exists("/content") else "."
-    filename = os.path.join(export_dir, f"{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+    now = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = os.path.join(export_dir, f"{base_name}_{now}.xlsx")
     wb = Workbook()
     ws = wb.active
     ws.title = "Produkter"
 
-    # Always use COLUMN_ORDER
-    ws.append(COLUMN_ORDER)
+    # Write header row
+    for col_num, col in enumerate(COLUMN_ORDER, 1):
+        cell = ws.cell(row=1, column=col_num, value=col)
+        cell.font = Font(bold=True, color="FFFFFFFF")
+        cell.fill = PatternFill("solid", fgColor="FF212121")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = Border(bottom=Side(style="medium", color="FFB0BEC5"))
 
-    # Write data rows in this order
-    for row in data:
-        ws.append([row.get(col, "") for col in COLUMN_ORDER])
-        row_idx = ws.max_row
-        category = row.get("Category") or row.get("category") or ""
-        subcategory = row.get("Subcategory") or row.get("subcategory") or ""
-        pastel_color = pastel_color_for_category(subcategory) if 'pastel_color_for_category' in globals() and pastel_color_for_category(subcategory) != "FFF5F5F5" else (pastel_color_for_category(category) if 'pastel_color_for_category' in globals() else "FFF5F5F5")
-        for col_idx in range(1, len(COLUMN_ORDER) + 1):
-            cell = ws.cell(row=row_idx, column=col_idx)
-            cell.fill = PatternFill("solid", fgColor=pastel_color)
+    # Write data rows with coloring
+    for row_num, row in enumerate(data_sorted, 2):
+        for col_num, col in enumerate(COLUMN_ORDER, 1):
+            ws.cell(row=row_num, column=col_num, value=row.get(col, ""))
+        color = get_color(row)
+        # Style the row
+        for col_num in range(1, len(COLUMN_ORDER) + 1):
+            cell = ws.cell(row=row_num, column=col_num)
+            cell.fill = PatternFill("solid", fgColor=color)
             cell.font = Font(color="FF212121")
             cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
             cell.border = Border(
@@ -190,13 +249,8 @@ def export_to_xlsx(data, base_name="table_produkter"):
     for col_num, col in enumerate(COLUMN_ORDER, 1):
         ws.column_dimensions[get_column_letter(col_num)].width = max(12, len(col) + 2)
 
-    try:
-        wb.save(filename)
-        print(f"Export till XLSX klar: {filename}")
-    except Exception as e:
-        print(f"Fel vid sparande av XLSX: {e}")
-        logging.error(f"XLSX export failed: {e}")
-        return None
+    wb.save(filename)
+    print(f"Export till XLSX klar: {filename}")
     return filename
 
 def backup_export_to_csv(data, base_name="export_backup"):
