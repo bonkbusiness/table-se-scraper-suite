@@ -129,6 +129,32 @@ def backup_export_to_csv(data, filename=None, base_name="table_produkter_backup"
         return None
 
 def export_to_xlsx(data, base_name="table_produkter"):
+    """
+    Export a list of product dicts to XLSX with explicit column order.
+    Returns the filename.
+    """
+    COLUMN_ORDER = [
+        "Namn",
+        "Artikelnummer",
+        "Färg",
+        "Material",
+        "Serie",
+        "Pris exkl. moms (värde)",
+        "Pris exkl. moms (enhet)",
+        "Pris inkl. moms (värde)",
+        "Pris inkl. moms (enhet)",
+        "Mått (text)",
+        "Längd (värde)", "Längd (enhet)",
+        "Bredd (värde)", "Bredd (enhet)",
+        "Höjd (värde)", "Höjd (enhet)",
+        "Djup (värde)", "Djup (enhet)",
+        "Diameter (värde)", "Diameter (enhet)",
+        "Kapacitet (värde)", "Kapacitet (enhet)",
+        "Volym (värde)", "Volym (enhet)",
+        "Produktbild-URL",
+        "Produkt-URL"
+    ]
+
     if not data:
         print("Ingen data att exportera till XLSX.")
         return None
@@ -138,24 +164,17 @@ def export_to_xlsx(data, base_name="table_produkter"):
     ws = wb.active
     ws.title = "Produkter"
 
-    headers = get_all_headers(data)
-    ws.append(headers)
+    # Always use COLUMN_ORDER
+    ws.append(COLUMN_ORDER)
 
-    # Formatting headers
-    for col in range(1, len(headers) + 1):
-        cell = ws.cell(row=1, column=col)
-        cell.font = Font(bold=True, color="FFFFFFFF")
-        cell.fill = PatternFill("solid", fgColor="FF212121")
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        cell.border = Border(bottom=Side(style="medium", color="FFB0BEC5"))
-
+    # Write data rows in this order
     for row in data:
-        ws.append([row.get(h, "") for h in headers])
+        ws.append([row.get(col, "") for col in COLUMN_ORDER])
         row_idx = ws.max_row
         category = row.get("Category") or row.get("category") or ""
         subcategory = row.get("Subcategory") or row.get("subcategory") or ""
-        pastel_color = pastel_color_for_category(subcategory) if 'pastel_color_for_category' in globals() and pastel_color_for_category(subcategory) != "FFF5F5F5" else (pastel_color_for_category(category) if 'pastel_color_for_category' in globals() else "FFFFFFFF")
-        for col_idx in range(1, len(headers) + 1):
+        pastel_color = pastel_color_for_category(subcategory) if 'pastel_color_for_category' in globals() and pastel_color_for_category(subcategory) != "FFF5F5F5" else (pastel_color_for_category(category) if 'pastel_color_for_category' in globals() else "FFF5F5F5")
+        for col_idx in range(1, len(COLUMN_ORDER) + 1):
             cell = ws.cell(row=row_idx, column=col_idx)
             cell.fill = PatternFill("solid", fgColor=pastel_color)
             cell.font = Font(color="FF212121")
@@ -167,9 +186,9 @@ def export_to_xlsx(data, base_name="table_produkter"):
                 bottom=Side(style="thin", color="FFCFD8DC"),
             )
 
-    for col in ws.columns:
-        max_length = max(len(str(cell.value) or "") for cell in col)
-        ws.column_dimensions[col[0].column_letter].width = max_length + 6
+    # Auto-width columns
+    for col_num, col in enumerate(COLUMN_ORDER, 1):
+        ws.column_dimensions[get_column_letter(col_num)].width = max(12, len(col) + 2)
 
     try:
         wb.save(filename)
@@ -178,6 +197,41 @@ def export_to_xlsx(data, base_name="table_produkter"):
         print(f"Fel vid sparande av XLSX: {e}")
         logging.error(f"XLSX export failed: {e}")
         return None
+    return filename
+
+def backup_export_to_csv(data, base_name="export_backup"):
+    """
+    Export a list of product dicts to CSV with explicit column order.
+    Returns the filename.
+    """
+    COLUMN_ORDER = [
+        "Namn",
+        "Artikelnummer",
+        "Färg",
+        "Material",
+        "Serie",
+        "Pris exkl. moms (värde)",
+        "Pris exkl. moms (enhet)",
+        "Pris inkl. moms (värde)",
+        "Pris inkl. moms (enhet)",
+        "Mått (text)",
+        "Längd (värde)", "Längd (enhet)",
+        "Bredd (värde)", "Bredd (enhet)",
+        "Höjd (värde)", "Höjd (enhet)",
+        "Djup (värde)", "Djup (enhet)",
+        "Diameter (värde)", "Diameter (enhet)",
+        "Kapacitet (värde)", "Kapacitet (enhet)",
+        "Volym (värde)", "Volym (enhet)",
+        "Produktbild-URL",
+        "Produkt-URL"
+    ]
+    now = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{base_name}_{now}.csv"
+    with open(filename, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=COLUMN_ORDER)
+        writer.writeheader()
+        for row in data:
+            writer.writerow({col: row.get(col, "") for col in COLUMN_ORDER})
     return filename
 
 def safe_export_to_xlsx_with_colab_backup(data, base_name="table_produkter"):
