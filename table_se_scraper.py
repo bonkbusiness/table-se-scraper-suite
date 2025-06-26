@@ -567,6 +567,13 @@ def backup_export_to_csv(data, base_name="table_produkter_backup"):
         return None
 
 def export_to_xlsx(data, base_name="table_produkter"):
+   logging.info(f"DEBUG: export_to_xlsx called with data type: {type(data)}")
+    if isinstance(data, list):
+        logging.info(f"DEBUG: Data length: {len(data)}")
+        if len(data) > 0:
+            logging.info(f"DEBUG: First row: {data[0]}")
+    else:
+        logging.info(f"DEBUG: Data value: {data}")
     if not data:
         print("Ingen data att exportera till XLSX.")
         return None
@@ -707,11 +714,25 @@ def enhanced_main_with_scan_and_error_file():
         max_workers=8,
         fallback_export_func=backup_export_to_csv    # fallback
     )
+
+    # Add debugging/logging before returning
     if exported_file is None:
         logprint("Ingen data skrapades eller exporten misslyckades helt.")
         if error_traceback:
             print("FEL OCH TRACEBACK:\n", error_traceback)
+        # Debug: Log what was passed to the export function
+        logging.error("DEBUG: exported_file is None.")
         return None, None
+
+    # If the exported_file is a data list, log details
+    if isinstance(exported_file, list):
+        logging.info(f"DEBUG: Exported data is a list with {len(exported_file)} entries.")
+        if len(exported_file) > 0:
+            logging.info(f"DEBUG: First entry: {exported_file[0]}")
+        else:
+            logging.warning("DEBUG: Exported data list is empty.")
+    else:
+        logging.info(f"DEBUG: Exported data type is {type(exported_file)}. Value: {exported_file}")
 
     # If main_enhanced does not do smart scan, do it here:
     try:
