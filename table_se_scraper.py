@@ -715,13 +715,23 @@ def enhanced_main_with_scan_and_error_file():
         fallback_export_func=backup_export_to_csv    # fallback
     )
 
-    # Add debugging/logging before returning
-    if exported_file is None:
+    # --- ADD DEBUGGING HERE ---
+    # Check what was returned from scraping before export
+    if isinstance(exported_file, list):
+        logging.warning(f"DEBUG: 'exported_file' is a list with {len(exported_file)} entries.")
+        if len(exported_file) > 0:
+            logging.warning(f"DEBUG: First product: {exported_file[0]}")
+        else:
+            logging.warning("DEBUG: 'exported_file' is an EMPTY list.")
+    elif exported_file is None:
+        logging.warning("DEBUG: 'exported_file' is None (scraping/export failed or returned nothing).")
+    else:
+        logging.warning(f"DEBUG: 'exported_file' type: {type(exported_file)}. Value: {exported_file}")
+
+    if exported_file is None or (isinstance(exported_file, list) and len(exported_file) == 0):
         logprint("Ingen data skrapades eller exporten misslyckades helt.")
         if error_traceback:
             print("FEL OCH TRACEBACK:\n", error_traceback)
-        # Debug: Log what was passed to the export function
-        logging.error("DEBUG: exported_file is None.")
         return None, None
 
     # If the exported_file is a data list, log details
