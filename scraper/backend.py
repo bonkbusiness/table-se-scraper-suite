@@ -1,40 +1,43 @@
 from .category import extract_category_tree
-from .product import scrape_product
+from .product import extract_products_from_category, scrape_product
 from exclusions import is_excluded
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from .product import extract_products_from_category
 
-#all_urls = extract_products_from_category("https://www.table.se/produkter/some-category/")
+def collect_product_urls_from_tree_parallel(tree):
+    """
+    Traverse the category tree and collect product URLs in parallel for each category.
+    """
+    category_urls = []
 
-def collect_product_urls_from_tree(tree, extract_products_from_category):
-    """
-    Traverse the category tree and collect product URLs using the given extraction function.
-    """
-    product_urls = set()
-    
     def recurse(node):
         url = node.get("url")
         if not is_excluded(url):
-            # You may want to implement a site-specific extract_products_from_category in scraper/product.py
-            urls = extract_products_from_category(url)
-            product_urls.update(urls)
+            category_urls.append(url)
         for sub in node.get("subs", []):
             recurse(sub)
-    
+
     for cat in tree:
         recurse(cat)
-    return list(product_urls)
 
-def scrape_all_products(extract_products_from_category):
+    all_product_urls = set()
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(extract_products_from_category, url): url for url in category_urls}
+        for future in as_completed(futures):
+            product_urls = future.result()
+            all_product_urls.update(product_urls)
+
+    return list(all_product_urls)
+
+def scrape_all_products_parallel():
     """
-    Orchestrates the full scraping process:
+    Orchestrates the full scraping process in parallel:
     - Extracts the category tree
-    - Traverses to collect all product URLs
+    - Collects product URLs in parallel per category
     - Scrapes each product page in parallel
     - Deduplicates and returns the products
     """
     tree = extract_category_tree()
-    product_urls = collect_product_urls_from_tree(tree, extract_products_from_category)
+    product_urls = collect_product_urls_from_tree_parallel(tree)
     products = []
     seen = set()
     with ThreadPoolExecutor(max_workers=8) as executor:
