@@ -345,17 +345,10 @@ def extract_category_tree():
 # ========================
 def extract_product_data(product_url):
     logging.info(f"Extracting: {product_url}")
-    soup = get_soup(product_url)  # <--- Make sure this is present!
+    soup = get_soup(product_url)
     if not soup:
         logging.warning(f"Soup is None for {product_url}")
         return None
-    # ... rest ...
-    if not some_required_field:
-        logging.warning(f"Required field missing for {product_url}")
-        return None
-    # At the end:
-    logging.info(f"Product extracted OK: {product_url}")
-    return data
 
     # Artikelnummer: <strong> inside .woocommerce-product-details__short-description
     short_desc = soup.select_one(".woocommerce-product-details__short-description")
@@ -364,10 +357,8 @@ def extract_product_data(product_url):
         strong = short_desc.find("strong")
         if strong:
             artikelnummer = strong.get_text(strip=True)
-    # PATCH: Artikelnummer only numbers
     artikelnummer = extract_only_numbers(artikelnummer)
 
-    # Hash the relevant HTML for change detection
     content_hash = hash_content(soup.prettify())
 
     # Try the cache
@@ -376,7 +367,6 @@ def extract_product_data(product_url):
         logprint(f"Produkt {artikelnummer} laddad från cache.")
         return cached
 
-    # Namn: h1.edgtf-single-product-title[itemprop='name']
     namn = ""
     selectors = [
         "h1.edgtf-single-product-title[itemprop='name']",
@@ -388,29 +378,97 @@ def extract_product_data(product_url):
             namn = el.get_text(strip=True)
             break
 
-    # Pris inkl. moms: .product_price_in
     pris_inkl_elem = soup.select_one(".product_price_in")
     pris_inkl = (
         pris_inkl_elem.get_text(strip=True)
         if pris_inkl_elem else ""
     )
-    # PATCH: Pris inkl. moms only numbers
     pris_inkl = extract_only_number_value(pris_inkl)
 
-    # Pris exkl. moms: .product_price_ex
     pris_exkl_elem = soup.select_one(".product_price_ex")
     pris_exkl = (
         pris_exkl_elem.get_text(strip=True)
         if pris_exkl_elem else ""
     )
-    # PATCH: Pris exkl. moms only numbers
     pris_exkl = extract_only_number_value(pris_exkl)
 
-    # Produktbild-URL: as before
     produktbild_url = ""
     img = soup.select_one(".woocommerce-product-gallery__image img")
     if img and img.get("src"):
         produktbild_url = img.get("src")
+
+    more_info = soup.select_one('.product_more_info.vc_col-md-6')
+    info_dict = {}
+    if more_info:
+        for p in more_info.find_all('p'):
+            lines = []
+            for elem in p.contents:
+                if isinstance(elem, str):
+                    lines.extend(elem.split('\n'))
+                elif getattr(elem, 'name', None) == 'br':
+                    lines.append('\n')
+                else:
+                    lines.append(elem.get_text())
+            text = ''.join(lines)
+            for line in text.split('\n'):
+                line = line.strip()
+                if not line or ':' not in line:
+                    continue
+                label, value = line.split(':', 1)
+                label = label.strip().capitalize()
+                value = value.strip()
+                info_dict[label] = value
+
+    farg = info_dict.get('Färg', '')
+    material = info_dict.get('Material', '')
+    serie = info_dict.get('Serie', '')
+    matt_text = info_dict.get('Mått', '') or info_dict.get('Mått (text)', '')
+    diameter_text = info_dict.get('Diameter', '')
+    kapacitet_text = info_dict.get('Kapacitet', '')
+    volym_text = info_dict.get('Volym', '')
+
+    mått_dict = parse_measurements(matt_text)
+    # The following function must also be defined somewhere:
+    diameter_v, diameter_e = parse_value_unit(diameter_text)
+    if not diameter_v and mått_dict.get("Diameter (värde)"):
+        diameter_v = mått_dict.get("Diameter (värde)")
+        diameter_e = mått_dict.get("Diameter (enhet)")
+    kap_v, kap_e = parse_value_unit(kapacitet_text)
+    vol_v, vol_e = parse_value_unit(volym_text)
+    längd_v, längd_e = mått_dict.get("Längd (värde)"), mått_dict.get("Längd (enhet)")
+    bredd_v, bredd_e = mått_dict.get("Bredd (värde)"), mått_dict.get("Bredd (enhet)")
+    höjd_v, höjd_e = mått_dict.get("Höjd (värde)"), mått_dict.get("Höjd (enhet)")
+
+    data = {
+        "Namn": namn,
+        "Artikelnummer": artikelnummer,
+        "Pris exkl. moms (värde)": pris_exkl,
+        "Pris exkl. moms (enhet)": "kr" if pris_exkl else "",
+        "Pris inkl. moms (värde)": pris_inkl,
+        "Pris inkl. moms (enhet)": "kr" if pris_inkl else "",
+        "Mått (text)": mått_dict.get("Mått (text)"),
+        "Längd (värde)": längd_v,
+        "Längd (enhet)": längd_e,
+        "Bredd (värde)": bredd_v,
+        "Bredd (enhet)": bredd_e,
+        "Höjd (värde)": höjd_v,
+        "Höjd (enhet)": höjd_e,
+        "Diameter (värde)": diameter_v,
+        "Diameter (enhet)": diameter_e,
+        "Kapacitet (värde)": kap_v,
+        "Kapacitet (enhet)": kap_e,
+        "Volym (värde)": vol_v,
+        "Volym (enhet)": vol_e,
+        "Färg": farg,
+        "Material": material,
+        "Serie": serie,
+        "Produktbild-URL": produktbild_url,
+        "Produkt-URL": product_url
+    }
+
+    update_cache(artikelnummer, data, content_hash)
+    logprint(f"Extraherad produkt: {namn} (URL: {product_url})")
+    return data
 
     # ===================
     # More Info Section
