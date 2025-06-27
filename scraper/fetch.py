@@ -7,7 +7,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 try:
-    from logging_utils import get_logger
+    from scraper.logging import get_logger
     logger = get_logger("fetch")
 except ImportError:
     import logging
