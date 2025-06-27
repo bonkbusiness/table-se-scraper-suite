@@ -2,6 +2,44 @@ import re
 import unicodedata
 from typing import Optional, Any, Dict, List
 from html import unescape
+import os
+from datetime import datetime
+
+def make_output_filename(prefix, ext, folder=None, timestamp=None):
+    """
+    Return a standardized filename for output files.
+    Args:
+        prefix (str): Base name (e.g. 'products', 'errors', 'backup').
+        ext (str): Extension, with or without dot (e.g. '.xlsx', 'csv', 'log', 'pkl', 'json').
+        folder (str|None): Output folder. If None, auto-selects based on prefix.
+        timestamp (str|None): Use this timestamp, or generate current one.
+    Returns:
+        str: Full file path.
+    """
+    if not ext.startswith('.'):
+        ext = '.' + ext
+    if timestamp is None:
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+    # Auto-select folder if not explicitly specified
+    if folder is None:
+        if prefix in ('products', 'data'):
+            folder = 'export'
+        elif prefix in ('errors', 'error'):
+            folder = 'error'
+        elif prefix in ('log', 'logs', 'scrape'):
+            folder = 'logs'
+        elif prefix == 'backup':
+            folder = 'backup'
+        elif prefix == 'temp':
+            folder = 'temp'
+        else:
+            folder = 'export'  # Default fallback
+
+    filename = f"{prefix}_{timestamp}{ext}"
+    path = os.path.join(folder, filename)
+    os.makedirs(folder, exist_ok=True)
+    return path
 
 # --- Text Normalization and Cleaning ---
 
