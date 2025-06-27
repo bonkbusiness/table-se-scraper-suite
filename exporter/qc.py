@@ -1,18 +1,24 @@
 """
 exporter/qc.py
 
-Quality control and data validation for the Table.se scraper suite.
-Includes functions to check field completeness, find duplicates, and export errors.
+Quality control and data validation utilities for the Table.se scraper suite.
+
+This module provides:
+- Deduplication of products (with normalization)
+- Checking field completeness
+- Finding duplicate products (with normalization)
+- Exporting validation errors to XLSX
+- (Optional) Deep product validation via integration with scanner.validate_product
+
+All functions use logging for reporting and diagnostics.
 """
 
 from typing import List, Dict, Any, Optional, Tuple
 from openpyxl import Workbook
 
-try:
-    from scraper.logging import get_logger
-except ImportError:
-    import logging
-    get_logger = logging.getLogger
+from scraper.logging import get_logger
+from scraper.utils import normalize_text, normalize_whitespace
+# If you want to use more, import as needed.
 
 logger = get_logger("qc")
 
@@ -21,14 +27,23 @@ def deduplicate_products(
     key_fields: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
     """
-    Remove duplicate products based on a tuple of key fields (default: ['Namn', 'Artikelnummer']).
+    Remove duplicate products based on a tuple of normalized key fields.
+
+    Args:
+        products (List[Dict[str, Any]]): List of product dictionaries.
+        key_fields (Optional[List[str]]): Fields to use for deduplication 
+            (default: ["Namn", "Artikelnummer"]).
+
+    Returns:
+        List[Dict[str, Any]]: Deduplicated list of products.
     """
     if not key_fields:
         key_fields = ["Namn", "Artikelnummer"]
     seen = set()
     deduped = []
     for prod in products:
-        key = tuple(prod.get(field, "") for field in key_fields)
+        # Normalize each key field value for robust deduplication
+        key = tuple(normalize_text(normalize_whitespace(str(prod.get(field, "")))) for field in key_fields)
         if key not in seen:
             seen.add(key)
             deduped.append(prod)
@@ -42,14 +57,24 @@ def check_field_completeness(
     required_fields: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
     """
-    Returns a list of products missing any of the required fields.
+    Identify products missing any required field.
+
+    Args:
+        products (List[Dict[str, Any]]): List of product dictionaries.
+        required_fields (Optional[List[str]]): List of fields to check for completeness
+            (default: ["Namn", "Artikelnummer", "Pris inkl. moms (värde)", "Produkt-URL"]).
+
+    Returns:
+        List[Dict[str, Any]]: List of products missing at least one required field.
     """
     if not required_fields:
         required_fields = ["Namn", "Artikelnummer", "Pris inkl. moms (värde)", "Produkt-URL"]
     incomplete = []
     for prod in products:
         for field in required_fields:
-            if not prod.get(field):
+            # Normalize and check for empty/meaningless values
+            value = normalize_whitespace(str(prod.get(field, "")))
+            if not value:
                 logger.debug(f"Product missing field {field}: {prod.get('Artikelnummer', prod)}")
                 incomplete.append(prod)
                 break
@@ -61,16 +86,22 @@ def find_duplicate_products(
     key_fields: Optional[List[str]] = None
 ) -> List[Tuple[Tuple, List[Dict[str, Any]]]]:
     """
-    Find duplicate products based on key fields.
+    Find groups of duplicate products based on normalized key fields.
+
+    Args:
+        products (List[Dict[str, Any]]): List of product dictionaries.
+        key_fields (Optional[List[str]]): Fields to define uniqueness (default: ["Namn", "Artikelnummer"]).
 
     Returns:
-        list of (key, [product1, product2, ...]) for duplicates.
+        List[Tuple[Tuple, List[Dict[str, Any]]]]: 
+            List of (key, [product1, product2, ...]) tuples for duplicate groups.
     """
     if not key_fields:
         key_fields = ["Namn", "Artikelnummer"]
     lookup = {}
     for prod in products:
-        key = tuple(prod.get(field, "") for field in key_fields)
+        # Normalize each key field value
+        key = tuple(normalize_text(normalize_whitespace(str(prod.get(field, "")))) for field in key_fields)
         lookup.setdefault(key, []).append(prod)
     duplicates = [(k, v) for k, v in lookup.items() if len(v) > 1]
     for key, group in duplicates:
@@ -79,7 +110,14 @@ def find_duplicate_products(
 
 def export_errors_to_xlsx(errors: List[Dict[str, Any]], filename: str) -> Optional[str]:
     """
-    Export error list to the given xlsx filename.
+    Export a list of product errors to an XLSX file.
+
+    Args:
+        errors (List[Dict[str, Any]]): List of error dicts, typically with keys "error_type" and "product".
+        filename (str): Filename for the XLSX export.
+
+    Returns:
+        Optional[str]: Filename if export succeeded, None otherwise.
     """
     if not errors:
         logger.info("No validation errors to export.")
@@ -102,14 +140,20 @@ def export_errors_to_xlsx(errors: List[Dict[str, Any]], filename: str) -> Option
         logger.error(f"Error saving errors XLSX: {e}")
         return None
 
-# Optionally, integrate with scanner.validate_product for deeper validation:
 def validate_products_with_scanner(
     products: List[Dict[str, Any]],
     required_fields: Optional[List[str]] = None
 ) -> Dict[str, List[str]]:
     """
-    Uses scanner.validate_product to get detailed error lists.
-    Returns a dict of {sku or idx: [error messages]}.
+    Uses the scanner.validate_product function to get detailed error lists per product.
+
+    Args:
+        products (List[Dict[str, Any]]): List of product dictionaries.
+        required_fields (Optional[List[str]]): Fields to validate, or None for scanner default.
+
+    Returns:
+        Dict[str, List[str]]: Dictionary mapping product key (e.g., SKU or index)
+            to a list of validation error messages.
     """
     try:
         from scraper.scanner import validate_product
