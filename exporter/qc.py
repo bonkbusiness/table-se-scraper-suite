@@ -21,8 +21,28 @@ import os
 
 from scraper.logging import get_logger
 from scraper.utils import normalize_text, normalize_whitespace
+from scraper.utils import make_output_filename
 
 logger = get_logger("qc")
+
+def export_errors_to_xlsx(errors, filename=None):
+    """
+    Exports errors to an XLSX file, filename is auto-generated in error/ if not provided.
+    """
+    from openpyxl import Workbook
+    import os
+
+    if filename is None:
+        filename = make_output_filename('errors', 'xlsx', 'error')
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Errors"
+    ws.append(["error_type", "product"])
+    for error in errors:
+        ws.append([error.get("error_type", ""), str(error.get("product", ""))])
+    wb.save(filename)
+    return filename
 
 # === Core QC Utility Functions ===
 
