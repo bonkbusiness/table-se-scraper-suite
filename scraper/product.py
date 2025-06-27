@@ -1,14 +1,31 @@
 """
-Product scraping module for table.se
+scraper/product.py
 
-This module provides functions to extract product URLs from all category pages (no pagination),
-and to scrape detailed product data from individual product pages. It is designed for the specific
-structure of table.se, as of 2024, and integrates with the main scraper suite's caching and exclusion logic.
+Product scraping module for Table.se
 
-Functions:
-    - extract_products_from_category: Get all product URLs from a category (no pagination).
-    - extract_all_product_urls: Traverse a category tree and return all unique product URLs.
-    - scrape_product: Extract all relevant fields from a table.se product page into a dictionary.
+This module provides functions to:
+    - Extract product URLs from all category pages (no pagination)
+    - Traverse a category tree and return all unique product URLs
+    - Scrape detailed product data from individual product pages
+
+Design:
+    - Tailored for the Table.se site structure (as of 2024)
+    - Integrates with caching and exclusion logic for robustness and efficiency
+    - Extensible parsing logic for future-proofing as the site evolves
+
+Main Functions:
+    - extract_products_from_category(category_url): List[str]
+    - extract_all_product_urls(category_tree): Set[str]
+    - scrape_product(product_url, category_tree=None): Dict[str, Any]
+
+Usage:
+    from scraper.product import extract_all_product_urls, scrape_product
+
+    product_urls = extract_all_product_urls(category_tree)
+    product_data = [scrape_product(url, category_tree) for url in product_urls]
+
+Author: bonkbusiness
+License: MIT
 """
 
 from .utils import (
@@ -26,24 +43,36 @@ import json
 from scraper.scanner import robust_select_one, robust_select_attr
 from scraper.logging import get_logger
 
+from typing import List, Dict, Any, Optional, Set, Tuple
+
 logger = get_logger(__name__)
 
 BASE_URL = "https://www.table.se"
 
-def _extract_product_links(soup):
+def _extract_product_links(soup: BeautifulSoup) -> Set[str]:
     """
-    Return set of product URLs from soup.
-    Table.se uses <a class="woocommerce-LoopProduct-link" href="...">
+    Extracts all product URLs from a BeautifulSoup-parsed category page.
+
+    Args:
+        soup (BeautifulSoup): Parsed HTML of the category page.
+
+    Returns:
+        set: Absolute product URLs found on the page.
     """
     return {
         urljoin(BASE_URL, a.get("href"))
         for a in soup.find_all("a", class_="woocommerce-LoopProduct-link", href=True)
     }
 
-def extract_products_from_category(category_url):
+def extract_products_from_category(category_url: str) -> List[str]:
     """
-    Given a category URL, return a list of all product page URLs in that category.
-    Table.se does NOT use pagination: all products are listed on a single page.
+    Get all product page URLs in a category (no pagination).
+
+    Args:
+        category_url (str): URL of the category page.
+
+    Returns:
+        list: Filtered product URLs (strings).
     """
     logger.info(f"Fetching products for category: {category_url}")
     try:
@@ -58,10 +87,15 @@ def extract_products_from_category(category_url):
     logger.info(f"Found {len(filtered_links)} products on category page: {category_url}")
     return list(filtered_links)
 
-def extract_all_product_urls(category_tree):
+def extract_all_product_urls(category_tree: List[Dict[str, Any]]) -> Set[str]:
     """
     Traverse the full category tree and extract all unique product URLs.
-    Logs progress for each category.
+
+    Args:
+        category_tree (list): Output from extract_category_tree()
+
+    Returns:
+        set: Unique product URLs (strings)
     """
     product_urls = set()
     def traverse(node):
@@ -74,12 +108,30 @@ def extract_all_product_urls(category_tree):
     logger.info(f"Total unique product URLs collected: {len(product_urls)}")
     return product_urls
 
-def _get_text_or_empty(soup, selector):
+def _get_text_or_empty(soup: BeautifulSoup, selector: str) -> str:
+    """
+    Utility to select one element and return its stripped text, or empty string.
+
+    Args:
+        soup (BeautifulSoup): Parsed HTML
+        selector (str): CSS selector
+
+    Returns:
+        str: Text content or empty string
+    """
     el = soup.select_one(selector)
     return el.get_text(strip=True) if el else ""
 
-def parse_price_string(price_str):
-    """Parse price string to value/unit."""
+def parse_price_string(price_str: str) -> Tuple[str, str]:
+    """
+    Parse price string to (value, unit).
+
+    Args:
+        price_str (str): Price string, e.g. "123 kr"
+
+    Returns:
+        tuple: (value, unit)
+    """
     if not price_str:
         return "", ""
     m = re.match(r"([\d\.,]+)\s*([^\d\s]+)?", price_str.strip())
@@ -89,10 +141,16 @@ def parse_price_string(price_str):
     unit = m.group(2) or ""
     return value, unit
 
-def parse_measurements_info(text):
+def parse_measurements_info(text: str) -> Dict[str, str]:
     """
     Handles strings like "L 165 cm B 82 cm H 74 cm" or "H 9 cm Ø 8 cm".
-    Returns dict of recognized measurements (Längd, Bredd, Höjd, Diameter, Djup, Kapacitet, Volym, Vikt).
+    Returns dict of recognized measurements.
+
+    Args:
+        text (str): Free-text measurements
+
+    Returns:
+        dict: Measurement keys and values
     """
     result = {}
     key_map = {
@@ -106,7 +164,6 @@ def parse_measurements_info(text):
         "volym": "Volym",
         "vikt": "Vikt",
     }
-    # Find pairs like "L 165 cm", "B 82 cm", etc.
     for m in re.finditer(r"([A-Za-zÅÄÖåäöøØ]+)[\s:]*([\d\.,]+)\s*([a-zA-ZåäöÅÄÖ%]*)", text):
         k, v, u = m.groups()
         k_norm = key_map.get(k.lower(), k.capitalize())
@@ -114,10 +171,15 @@ def parse_measurements_info(text):
         result[f"{k_norm} (enhet)"] = u
     return result
 
-def parse_features_panel(panel_html):
+def parse_features_panel(panel_html: Any) -> Tuple[Dict[str, str], Dict[str, str]]:
     """
-    Parses the right-side feature panel from Table.se product page.
-    Returns (main_fields_dict, extra_data_dict)
+    Parses the right-side feature panel from a Table.se product page.
+
+    Args:
+        panel_html: HTML content of the panel
+
+    Returns:
+        tuple: (main_fields_dict, extra_fields_dict)
     """
     measurements = {}
     main_fields = {}
@@ -125,7 +187,6 @@ def parse_features_panel(panel_html):
     if not panel_html:
         return main_fields, extra
 
-    # Split panel into lines, handle <br> or newlines
     lines = re.split(r"<br\s*/?>|\n", str(panel_html))
     for line in lines:
         line = re.sub(r'<.*?>', '', line)  # Strip HTML tags
@@ -135,21 +196,25 @@ def parse_features_panel(panel_html):
         label, value = [s.strip() for s in line.split(":", 1)]
         label_norm = label.lower()
         if label_norm == "mått":
-            # Measurements: parse for L/B/H etc.
             measurements = parse_measurements_info(value)
             main_fields["Data (text)"] = value
         elif label_norm in ("färg", "material", "serie", "kapacitet", "volym", "diameter", "vikt"):
             main_fields[label.capitalize()] = value
         else:
             extra[label] = value
-    # Add parsed measurements to main fields
     main_fields.update(measurements)
     return main_fields, extra
 
-def get_category_hierarchy_from_url(url, category_tree):
+def get_category_hierarchy_from_url(url: str, category_tree: List[Dict[str, Any]]) -> Tuple[str, str]:
     """
     Given a product URL and the category tree, return (parent, sub) category names.
-    Returns ('', '') if not found.
+
+    Args:
+        url (str): Product URL
+        category_tree (list): Category tree structure
+
+    Returns:
+        tuple: (parent_category_name, sub_category_name)
     """
     def search(node, parent_name=""):
         if node.get("url") and node["url"].rstrip('/') in url.rstrip('/'):
@@ -165,11 +230,16 @@ def get_category_hierarchy_from_url(url, category_tree):
             return result
     return ("", "")
 
-def scrape_product(product_url, category_tree=None):
+def scrape_product(product_url: str, category_tree: Optional[List[Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
     """
-    Scrape all relevant product data fields from a table.se product page.
-    Uses robust selectors for resilience.
-    category_tree: Optional. If given, used to derive "Kategori (parent)" and "Kategori (sub)".
+    Scrape all relevant product data fields from a Table.se product page.
+
+    Args:
+        product_url (str): URL of the product page
+        category_tree (list, optional): Used to derive "Kategori (parent)" and "Kategori (sub)"
+
+    Returns:
+        dict or None: Scraped product data, or None on failure/exclusion
     """
     if is_excluded(product_url):
         return None
@@ -185,7 +255,6 @@ def scrape_product(product_url, category_tree=None):
     if not soup:
         return None
 
-    # Name
     namn = robust_select_one(soup, [
         ".edgtf-single-product-title",
         "h1.product_title",
@@ -193,7 +262,6 @@ def scrape_product(product_url, category_tree=None):
         "h1"
     ]) or normalize_whitespace(_get_text_or_empty(soup, ".edgtf-single-product-title"))
 
-    # SKU (Artikelnummer): only digits
     artikelnummer_raw = robust_select_one(soup, [
         ".sku",
         "[itemprop='sku']",
@@ -203,7 +271,6 @@ def scrape_product(product_url, category_tree=None):
     ]) or extract_only_numbers(_get_text_or_empty(soup, ".woocommerce-product-details__short-description strong"))
     artikelnummer_digits = "".join(filter(str.isdigit, str(artikelnummer_raw)))
 
-    # Price incl. moms (Pris inkl. moms)
     pris_inkl_raw = robust_select_one(soup, [
         ".product_price_in",
         ".price .amount",
@@ -213,7 +280,6 @@ def scrape_product(product_url, category_tree=None):
     ]) or _get_text_or_empty(soup, ".product_price_in")
     pris_inkl_v, pris_inkl_e = parse_price_string(pris_inkl_raw)
 
-    # Price exkl. moms (Pris exkl. moms)
     pris_exkl_raw = robust_select_one(soup, [
         ".product_price_ex"
     ]) or _get_text_or_empty(soup, ".product_price_ex")
@@ -249,17 +315,14 @@ def scrape_product(product_url, category_tree=None):
     beskrivning = strip_html(beskrivning_raw)
     beskrivning = normalize_whitespace(beskrivning)
 
-    # Parse right-side info panel
     more_info = soup.select_one('.product_more_info.vc_col-md-6')
     main_fields, extra_fields = parse_features_panel(more_info)
 
-    # Fields always parsed into columns
     farg = main_fields.get('Färg', '')
     material = main_fields.get('Material', '')
     serie = main_fields.get('Serie', '')
     data_text = main_fields.get('Data (text)', '')
 
-    # Specific measurements
     längd_v, längd_e = main_fields.get("Längd (värde)"), main_fields.get("Längd (enhet)")
     bredd_v, bredd_e = main_fields.get("Bredd (värde)"), main_fields.get("Bredd (enhet)")
     höjd_v, höjd_e = main_fields.get("Höjd (värde)"), main_fields.get("Höjd (enhet)")
@@ -272,7 +335,6 @@ def scrape_product(product_url, category_tree=None):
     canonical = soup.find("link", rel="canonical")
     produkt_url = canonical["href"] if (canonical and canonical.has_attr("href") and validate_url(canonical["href"])) else product_url
 
-    # Category
     kategori_parent, kategori_sub = ("", "")
     if category_tree is not None:
         kategori_parent, kategori_sub = get_category_hierarchy_from_url(produkt_url, category_tree)
@@ -282,7 +344,6 @@ def scrape_product(product_url, category_tree=None):
     if cached:
         return cached
 
-    # Compose extra_data JSON string (everything in extra_fields that isn't a main column)
     extra_data_dict = dict(extra_fields)
     extra_data_json = json.dumps(extra_data_dict, ensure_ascii=False, sort_keys=True) if extra_data_dict else ""
 

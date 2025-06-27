@@ -11,6 +11,40 @@ Features:
 - Can be used directly for exporting already quality-controlled data, or via the QC pipeline entrypoint.
 - Compatible with the man-in-the-middle QC logic in exporter/qc.py.
 
+Datapoints/columns exported (see scraper/product.py extraction):
+    - Namn
+    - Artikelnummer
+    - Färg
+    - Material
+    - Serie
+    - Pris exkl. moms (värde)
+    - Pris exkl. moms (enhet)
+    - Pris inkl. moms (värde)
+    - Pris inkl. moms (enhet)
+    - Längd (värde)
+    - Längd (enhet)
+    - Bredd (värde)
+    - Bredd (enhet)
+    - Höjd (värde)
+    - Höjd (enhet)
+    - Djup (värde)
+    - Djup (enhet)
+    - Diameter (värde)
+    - Diameter (enhet)
+    - Kapacitet (värde)
+    - Kapacitet (enhet)
+    - Volym (värde)
+    - Volym (enhet)
+    - Vikt (värde)
+    - Vikt (enhet)
+    - Data (text)
+    - Kategori (parent)
+    - Kategori (sub)
+    - Produktbild-URL
+    - Produkt-URL
+    - Beskrivning
+    - Extra data
+
 API:
 - export_to_csv(data, filename, sort_key="Namn")
     Exports the given list of dicts to a CSV file.
@@ -33,35 +67,39 @@ from scraper.logging import get_logger
 
 logger = get_logger("csv-export")
 
+PRODUCT_COLUMN_ORDER = [
+    "Namn",
+    "Artikelnummer",
+    "Färg",
+    "Material",
+    "Serie",
+    "Pris exkl. moms (värde)",
+    "Pris exkl. moms (enhet)",
+    "Pris inkl. moms (värde)",
+    "Pris inkl. moms (enhet)",
+    "Längd (värde)", "Längd (enhet)",
+    "Bredd (värde)", "Bredd (enhet)",
+    "Höjd (värde)", "Höjd (enhet)",
+    "Djup (värde)", "Djup (enhet)",
+    "Diameter (värde)", "Diameter (enhet)",
+    "Kapacitet (värde)", "Kapacitet (enhet)",
+    "Volym (värde)", "Volym (enhet)",
+    "Vikt (värde)", "Vikt (enhet)",
+    "Data (text)",
+    "Kategori (parent)",
+    "Kategori (sub)",
+    "Produktbild-URL",
+    "Produkt-URL",
+    "Beskrivning",
+    "Extra data",
+]
+
 def export_to_csv(data, filename, sort_key="Namn"):
     """
     Export a list of product dicts to CSV, sorted by sort_key.
-    Each product dict may include 'Kategori (parent)' and 'Kategori (sub)' fields for parent and subcategories.
+    Each product dict may include all fields listed in PRODUCT_COLUMN_ORDER.
     Returns the filename or None on error.
     """
-    COLUMN_ORDER = [
-        "Namn",
-        "Artikelnummer",
-        "Färg",
-        "Material",
-        "Serie",
-        "Pris exkl. moms (värde)",
-        "Pris exkl. moms (enhet)",
-        "Pris inkl. moms (värde)",
-        "Pris inkl. moms (enhet)",
-        "Data (text)",  # 5. Changed key name here
-        "Längd (värde)", "Längd (enhet)",
-        "Bredd (värde)", "Bredd (enhet)",
-        "Höjd (värde)", "Höjd (enhet)",
-        "Djup (värde)", "Djup (enhet)",
-        "Diameter (värde)", "Diameter (enhet)",
-        "Kapacitet (värde)", "Kapacitet (enhet)",
-        "Volym (värde)", "Volym (enhet)",
-        "Kategori (parent)", # 6. Add/keep
-        "Kategori (sub)",    # 6. Add/keep
-        "Produktbild-URL",
-        "Produkt-URL"
-    ]
     if not data:
         logger.warning("Ingen data att exportera till CSV.")
         return None
@@ -69,10 +107,10 @@ def export_to_csv(data, filename, sort_key="Namn"):
     try:
         data_sorted = sorted(data, key=lambda x: x.get(sort_key, "").lower())
         with open(filename, "w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=COLUMN_ORDER)
+            writer = csv.DictWriter(f, fieldnames=PRODUCT_COLUMN_ORDER)
             writer.writeheader()
             for row in data_sorted:
-                writer.writerow({col: row.get(col, "") for col in COLUMN_ORDER})
+                writer.writerow({col: row.get(col, "") for col in PRODUCT_COLUMN_ORDER})
         logger.info(f"Export till CSV klar: {filename}")
         return filename
     except Exception as e:

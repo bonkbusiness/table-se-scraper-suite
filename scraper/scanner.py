@@ -1,11 +1,72 @@
+"""
+scraper/scanner.py
+
+Validation, anomaly detection, and review export utilities for the Table.se Scraper Suite.
+
+This module provides:
+    - Product data validation: checks required fields, value formats, and more
+    - Robust selectors for HTML parsing
+    - Statistical anomaly/outlier detection on numeric fields
+    - Logging of validation reports
+    - Export of flagged products (with errors) to Excel for human review
+    - Pipeline-style bulk product scanning and filtering
+
+Usage:
+    from scraper.scanner import scan_products
+
+    filtered, product_errors = scan_products(products, review_export=True)
+
+Author: bonkbusiness
+License: MIT
+"""
+
 import re
+import numpy as np  # Ensure numpy is installed
 from typing import List, Dict, Any, Tuple, Optional
 
 from scraper.logging import get_logger
 
 logger = get_logger("scanner")
 
+# -- Product datapoints (from scraper/product.py, kept in sync with export) --
+PRODUCT_DATAPOINTS = [
+    "Namn",
+    "Artikelnummer",
+    "Färg",
+    "Material",
+    "Serie",
+    "Pris exkl. moms (värde)",
+    "Pris exkl. moms (enhet)",
+    "Pris inkl. moms (värde)",
+    "Pris inkl. moms (enhet)",
+    "Längd (värde)", "Längd (enhet)",
+    "Bredd (värde)", "Bredd (enhet)",
+    "Höjd (värde)", "Höjd (enhet)",
+    "Djup (värde)", "Djup (enhet)",
+    "Diameter (värde)", "Diameter (enhet)",
+    "Kapacitet (värde)", "Kapacitet (enhet)",
+    "Volym (värde)", "Volym (enhet)",
+    "Vikt (värde)", "Vikt (enhet)",
+    "Data (text)",
+    "Kategori (parent)",
+    "Kategori (sub)",
+    "Produktbild-URL",
+    "Produkt-URL",
+    "Beskrivning",
+    "Extra data",
+]
+
 def validate_product(product: Dict[str, Any], required_fields=None) -> List[str]:
+    """
+    Validate a product dictionary according to required fields and value rules.
+
+    Args:
+        product (dict): The product data to validate.
+        required_fields (list, optional): Override required fields.
+
+    Returns:
+        list: Validation error messages (empty if valid).
+    """
     REQUIRED_FIELDS = [
         "Namn", "Artikelnummer", "Pris inkl. moms (värde)", "Produkt-URL", "Produktbild-URL"
     ]
@@ -27,7 +88,9 @@ def validate_product(product: Dict[str, Any], required_fields=None) -> List[str]
     img = str(product.get("Produktbild-URL", ""))
     if not img or img.strip() == "" or img.endswith("placeholder.png"):
         errors.append("Missing or placeholder product image")
-    if not (product.get("Category") or product.get("category")):
+    # Note: Category field names for compatibility with product.py (Kategori (parent)/Kategori (sub))
+    if not (product.get("Kategori (parent)") or product.get("Kategori (sub)")
+            or product.get("Category") or product.get("category")):
         errors.append("Missing category")
     url = str(product.get("Produkt-URL", ""))
     if url and not url.startswith("http"):
@@ -67,7 +130,6 @@ def detect_anomalies(products: List[Dict[str, Any]], field: str, z_thresh: float
             continue
     if not values or len(values) < 3:
         return []
-    import numpy as np
     values_np = np.array(values)
     median = np.median(values_np)
     diff = np.abs(values_np - median)
@@ -91,17 +153,17 @@ def log_validation_report(products: List[Dict[str, Any]], product_errors: Dict[s
 
 def export_flagged_products(products: List[Dict[str, Any]], product_errors: Dict[str, List[str]], filename: str = "flagged_products_review.xlsx"):
     try:
-        from openpyxl import Workbook
+        from openpyxl import Workbook  # Ensure openpyxl is installed
         wb = Workbook()
         ws = wb.active
         ws.title = "Flagged Products"
-        headers = list(products[0].keys()) + ["Validation Errors"]
+        headers = PRODUCT_DATAPOINTS + ["Validation Errors"]
         ws.append(headers)
         for prod in products:
             key = prod.get("Artikelnummer") or prod.get("Produkt-URL")
             errs = product_errors.get(key)
             if errs:
-                row = [prod.get(h, "") for h in headers[:-1]]
+                row = [prod.get(h, "") for h in PRODUCT_DATAPOINTS]
                 row.append("; ".join(errs))
                 ws.append(row)
         wb.save(filename)
@@ -117,6 +179,24 @@ def scan_products(
     review_export=True,
     export_filename="flagged_products_review.xlsx"
 ) -> Tuple[List[Dict[str, Any]], Dict[str, List[str]]]:
+    
+    """
+    Validate and filter a list of products, flagging errors and anomalies, and optionally exporting flagged products.
+
+    Args:
+        products (list): List of product dicts to scan.
+        required_fields (list, optional): Override required fields.
+        anomaly_field (str): Numeric field to check for outliers.
+        anomaly_z (float): Z-score threshold for anomalies.
+        review_export (bool): If True, export flagged products for review.
+        export_filename (str): Output Excel filename for flagged products.
+
+    Returns:
+        tuple: (filtered_products, product_errors)
+            filtered_products: Valid products (list)
+            product_errors: Dict of product key -> error list
+    """
+
     product_errors = {}
     filtered = []
     for i, prod in enumerate(products):

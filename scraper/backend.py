@@ -1,3 +1,45 @@
+"""
+scraper/backend.py
+
+Backend orchestration module for the Table.se Scraper Suite.
+
+This module provides the main scraping pipeline for Table.se, including:
+    - Category tree extraction
+    - Parallelized product URL collection
+    - Parallelized product detail scraping with caching and retry logic
+    - Post-processing, including QC/validation and filtered export
+
+Features:
+    - Configurable parallelism, retry, throttle, and caching via CLI arguments
+    - Robust logging at all stages for diagnostics and monitoring
+    - Utilizes a persistent cache to avoid redundant network requests and improve efficiency
+    - Exclusion logic for URLs and categories
+    - Exports cleaned data to JSON, and optionally flagged products for human review
+
+USAGE:
+    python -m scraper.backend [options]
+
+CLI OPTIONS:
+    --max-workers     Number of parallel threads (default: 8)
+    --retries         Number of retries for failed requests (default: 2)
+    --output          Output JSON file path (default: products_<timestamp>.json)
+    --throttle        Base throttle delay between requests (default: 0.7s)
+    --cache           Enable HTTP requests caching (requires requests-cache)
+    --review-export   Export flagged products for review (Excel)
+
+DEPENDENCIES:
+    - scraper.cache
+    - scraper.fetch
+    - scraper.scanner
+    - scraper.utils
+    - scraper.category
+    - scraper.product
+    - exclusions
+
+Author: bonkbusiness
+License: MIT
+"""
+
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
@@ -7,7 +49,7 @@ from typing import List, Dict, Any
 import logging
 from scraper.cache import Cache
 from scraper.fetch import fetch_url, enable_requests_cache
-from scraper.scanner import scan_products  # Updated: use the new scanner interface
+from scraper.scanner import scan_products
 from scraper.utils import deduplicate, make_output_filename
 from .category import extract_category_tree
 from .product import extract_products_from_category, scrape_product
@@ -19,11 +61,27 @@ logging.basicConfig(
     format='[%(asctime)s] %(levelname)s %(name)s: %(message)s'
 )
 
-# Instantiate cache
+# Instantiate a persistent cache object for all operations
 cache = Cache()
 
-def collect_product_urls(tree: List[Dict[str, Any]], max_workers: int = 8, retries: int = 2, throttle: float = 0.7) -> List[str]:
-    """Parallel fetches product URLs from category tree."""
+def collect_product_urls(
+    tree: List[Dict[str, Any]],
+    max_workers: int = 8,
+    retries: int = 2,
+    throttle: float = 0.7
+) -> List[str]:
+    """
+    Parallel collection of all product URLs from the category tree.
+
+    Args:
+        tree (list): List of category tree nodes (dicts).
+        max_workers (int): Number of parallel threads.
+        retries (int): Number of retries for failed category fetches.
+        throttle (float): Base throttle delay (seconds).
+
+    Returns:
+        list: Unique product URLs (strings).
+    """
     category_urls = []
 
     def recurse(node):
@@ -42,7 +100,7 @@ def collect_product_urls(tree: List[Dict[str, Any]], max_workers: int = 8, retri
     def fetch_products(url):
         for attempt in range(retries + 1):
             try:
-                # Fetch and cache category page
+                # Fetch and cache category page HTML
                 if cache.exists(url):
                     html = cache.get(url)
                     logger.debug(f"Category cache hit: {url}")
@@ -50,7 +108,7 @@ def collect_product_urls(tree: List[Dict[str, Any]], max_workers: int = 8, retri
                     html = fetch_url(url, throttle=throttle, max_retries=retries)
                     cache.set(url, html, Cache.hash_content(html))
                     logger.debug(f"Fetched and cached category: {url}")
-                # Pass the category URL, not HTML, to extract_products_from_category
+                # Always pass the category URL to extract_products_from_category
                 return extract_products_from_category(url)
             except Exception as e:
                 logger.warning(f"Error fetching category {url}, attempt {attempt+1}/{retries}: {e}")
@@ -71,10 +129,28 @@ def collect_product_urls(tree: List[Dict[str, Any]], max_workers: int = 8, retri
             except Exception as e:
                 logger.error(f"Error in collecting products from {url}: {e}")
 
-    return deduplicate(list(all_product_urls))
+    result = deduplicate(list(all_product_urls))
+    logger.info(f"Total unique product URLs collected: {len(result)}")
+    return result
 
-def scrape_products(product_urls: List[str], max_workers: int = 8, retries: int = 2, throttle: float = 0.7) -> List[Dict[str, Any]]:
-    """Parallel scraping with caching and content hash checking."""
+def scrape_products(
+    product_urls: List[str],
+    max_workers: int = 8,
+    retries: int = 2,
+    throttle: float = 0.7
+) -> List[Dict[str, Any]]:
+    """
+    Parallel scraping of product details with caching and deduplication.
+
+    Args:
+        product_urls (list): List of product URLs to scrape.
+        max_workers (int): Number of parallel threads.
+        retries (int): Number of retries for failed scrapes.
+        throttle (float): Base throttle delay (seconds).
+
+    Returns:
+        list: Product dictionaries with all parsed fields.
+    """
     results = []
     seen_keys = set()
     logger.info(f"Scraping {len(product_urls)} products using {max_workers} workers.")
@@ -82,7 +158,7 @@ def scrape_products(product_urls: List[str], max_workers: int = 8, retries: int 
     def process(url):
         for attempt in range(retries + 1):
             try:
-                # Fetch HTML (cache by URL) and hash for change detection
+                # Fetch/cached HTML for product page
                 if cache.exists(url):
                     html = cache.get(url)
                     logger.debug(f"Product cache hit (raw HTML): {url}")
@@ -91,12 +167,12 @@ def scrape_products(product_urls: List[str], max_workers: int = 8, retries: int 
                     cache.set(url, html, Cache.hash_content(html))
                     logger.debug(f"Fetched and cached product HTML: {url}")
 
-                # Use the product scraper
-                product = scrape_product(url)  # Call the singular function, passing just the URL
+                # Scrape product details using the product scraper
+                product = scrape_product(url)
                 if not product:
                     return None
 
-                # Use a key (SKU, Namn, or URL as fallback)
+                # Deduplicate on (SKU, URL)
                 sku = product.get("Artikelnummer") or product.get("Namn") or url
                 key = (sku, url)
                 if key in seen_keys:
@@ -123,9 +199,14 @@ def scrape_products(product_urls: List[str], max_workers: int = 8, retries: int 
             except Exception as e:
                 logger.error(f"Error in product scrape: {e}")
 
+    logger.info(f"Scraped {len(results)} products.")
     return results
 
 def main():
+    """
+    CLI entrypoint for backend scraping pipeline.
+    Handles argument parsing, pipeline orchestration, and output.
+    """
     parser = argparse.ArgumentParser(description="Table.se Product Scraper Backend CLI")
     parser.add_argument("--max-workers", type=int, default=8, help="Number of parallel threads (default: 8)")
     parser.add_argument("--retries", type=int, default=2, help="Number of retries for failed requests (default: 2)")

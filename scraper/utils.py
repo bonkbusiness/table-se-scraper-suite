@@ -1,6 +1,6 @@
 import re
 import unicodedata
-from typing import Optional, Any, Dict, List
+from typing import Optional, Any, Dict, List, Tuple
 from html import unescape
 import os
 from datetime import datetime
@@ -8,7 +8,7 @@ from urllib.parse import urljoin
 
 # --- Output Filename Utility ---
 
-def make_output_filename(prefix, ext, folder=None, timestamp=None):
+def make_output_filename(prefix: str, ext: str, folder: Optional[str] = None, timestamp: Optional[str] = None) -> str:
     """
     Return a standardized filename for output files.
     Args:
@@ -115,18 +115,16 @@ def extract_only_numbers(text: Optional[str]) -> str:
 
 # --- Value and Unit Parsing ---
 
-def parse_value_unit(text: Optional[str]) -> (Optional[str], Optional[str]):
+def parse_value_unit(text: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
     """
     Splits strings like '12 cm' into ('12', 'cm'), handling both decimal and integer values.
     Accepts both '12cm' and 'cm 12'.
     """
     if not text:
         return None, None
-    # Try to match value followed by unit
     m = re.match(r"([0-9.,\-]+)\s*([a-zA-Z%]+)", text.replace(",", "."))
     if m:
         return m.group(1), m.group(2)
-    # Try to match unit followed by value
     m = re.match(r"([a-zA-Z%]+)\s*([0-9.,\-]+)", text.replace(",", "."))
     if m:
         return m.group(2), m.group(1)
@@ -138,6 +136,15 @@ def parse_measurements(matt_text: Optional[str]) -> Dict[str, Optional[str]]:
     Example: "Längd: 120 cm, Bredd: 40 cm" → {
         "Längd (värde)": "120", "Längd (enhet)": "cm", ...
     }
+    The measurement keys are kept in sync with scraper/product.py:
+        - Längd (värde), Längd (enhet)
+        - Bredd (värde), Bredd (enhet)
+        - Höjd (värde), Höjd (enhet)
+        - Djup (värde), Djup (enhet)
+        - Diameter (värde), Diameter (enhet)
+        - Kapacitet (värde), Kapacitet (enhet)
+        - Volym (värde), Volym (enhet)
+        - Vikt (värde), Vikt (enhet)
     """
     if not matt_text:
         return {}
@@ -243,12 +250,13 @@ def safe_find_all(soup, tag, **kwargs):
 def sort_products(data: List[Dict], sort_key="Namn") -> List[Dict]:
     """
     Sorts a list of dictionaries (e.g., products) by a given key, defaulting to 'Namn'.
+    The sort_key should be one of the product export datapoints (see scraper/product.py).
     """
     return sorted(data, key=lambda x: x.get(sort_key, ""))
 
 # --- Color Generation and Category Color Mapping (for visualization) ---
 
-def pastel_gradient_color(level: int, total_levels: int = 3, sat=0.25, light=0.85) -> str:
+def pastel_gradient_color(level: int, total_levels: int = 3, sat: float = 0.25, light: float = 0.85) -> str:
     """
     Generates distinct pastel colors in hex along a hue gradient.
     """
@@ -257,19 +265,21 @@ def pastel_gradient_color(level: int, total_levels: int = 3, sat=0.25, light=0.8
     r, g, b = colorsys.hls_to_rgb(hue, light, sat)
     return "#{:02X}{:02X}{:02X}".format(int(r*255), int(g*255), int(b*255))
 
-def get_category_levels(row: Dict[str, Any]) -> tuple:
+def get_category_levels(row: Dict[str, Any]) -> Tuple[str, str, str]:
     """
     Returns a tuple with category, subcategory, and sub-subcategory from a product dictionary.
+    The preferred keys are "Kategori (parent)", "Kategori (sub)", but fallback to "Category", "Subcategory".
     """
     return (
-        row.get("Kategori") or row.get("Category") or "",
-        row.get("Underkategori") or row.get("Subcategory") or "",
+        row.get("Kategori (parent)") or row.get("Category") or "",
+        row.get("Kategori (sub)") or row.get("Subcategory") or "",
         row.get("Under-underkategori") or row.get("Subsubcategory") or "",
     )
 
 def build_category_colors(data: List[Dict[str, Any]]):
     """
     Returns a function assigning a unique color to each product, based on its category hierarchy.
+    Uses the "Kategori (parent)", "Kategori (sub)" keys as extracted in scraper/product.py.
     """
     cats = sorted({get_category_levels(row) for row in data})
     cat2idx = {c: i for i, c in enumerate(cats)}

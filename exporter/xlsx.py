@@ -13,6 +13,40 @@ Features:
 - Uses logging for status and error messages (integrates with scraper.logging).
 - Compatible with QC pipeline (via export_products_with_qc).
 
+Datapoints/columns exported (see scraper/product.py extraction):
+    - Namn
+    - Artikelnummer
+    - Färg
+    - Material
+    - Serie
+    - Pris exkl. moms (värde)
+    - Pris exkl. moms (enhet)
+    - Pris inkl. moms (värde)
+    - Pris inkl. moms (enhet)
+    - Längd (värde)
+    - Längd (enhet)
+    - Bredd (värde)
+    - Bredd (enhet)
+    - Höjd (värde)
+    - Höjd (enhet)
+    - Djup (värde)
+    - Djup (enhet)
+    - Diameter (värde)
+    - Diameter (enhet)
+    - Kapacitet (värde)
+    - Kapacitet (enhet)
+    - Volym (värde)
+    - Volym (enhet)
+    - Vikt (värde)
+    - Vikt (enhet)
+    - Data (text)
+    - Kategori (parent)
+    - Kategori (sub)
+    - Produktbild-URL
+    - Produkt-URL
+    - Beskrivning
+    - Extra data
+
 API:
 - export_to_xlsx(data, filename, sort_key="Namn")
 - export_products_with_qc(products, filename, error_filename=None)
@@ -27,6 +61,33 @@ from scraper.utils import build_category_colors, make_output_filename
 
 logger = get_logger("xlsx-export")
 
+PRODUCT_COLUMN_ORDER = [
+    "Namn",
+    "Artikelnummer",
+    "Färg",
+    "Material",
+    "Serie",
+    "Pris exkl. moms (värde)",
+    "Pris exkl. moms (enhet)",
+    "Pris inkl. moms (värde)",
+    "Pris inkl. moms (enhet)",
+    "Längd (värde)", "Längd (enhet)",
+    "Bredd (värde)", "Bredd (enhet)",
+    "Höjd (värde)", "Höjd (enhet)",
+    "Djup (värde)", "Djup (enhet)",
+    "Diameter (värde)", "Diameter (enhet)",
+    "Kapacitet (värde)", "Kapacitet (enhet)",
+    "Volym (värde)", "Volym (enhet)",
+    "Vikt (värde)", "Vikt (enhet)",
+    "Data (text)",
+    "Kategori (parent)",
+    "Kategori (sub)",
+    "Produktbild-URL",
+    "Produkt-URL",
+    "Beskrivning",
+    "Extra data",
+]
+
 def to_argb(color):
     color = str(color).lstrip('#')
     if len(color) == 6:
@@ -39,32 +100,9 @@ def to_argb(color):
 def export_to_xlsx(data, filename=None, sort_key="Namn"):
     """
     Export a list of product dicts to XLSX, sorted by sort_key.
-    Each product dict may include 'Kategori (parent)' and 'Kategori (sub)' fields for parent and subcategories.
+    Each product dict may include all fields listed in PRODUCT_COLUMN_ORDER.
     Returns the filename or None on error.
     """
-    COLUMN_ORDER = [
-        "Namn",
-        "Artikelnummer",
-        "Färg",
-        "Material",
-        "Serie",
-        "Pris exkl. moms (värde)",
-        "Pris exkl. moms (enhet)",
-        "Pris inkl. moms (värde)",
-        "Pris inkl. moms (enhet)",
-        "Data (text)",  # 5. Changed key name here
-        "Längd (värde)", "Längd (enhet)",
-        "Bredd (värde)", "Bredd (enhet)",
-        "Höjd (värde)", "Höjd (enhet)",
-        "Djup (värde)", "Djup (enhet)",
-        "Diameter (värde)", "Diameter (enhet)",
-        "Kapacitet (värde)", "Kapacitet (enhet)",
-        "Volym (värde)", "Volym (enhet)",
-        "Kategori (parent)", # 6. Add/keep
-        "Kategori (sub)",    # 6. Add/keep
-        "Produktbild-URL",
-        "Produkt-URL"
-    ]
     if not data:
         logger.warning("Ingen data att exportera till XLSX.")
         return None
@@ -80,7 +118,7 @@ def export_to_xlsx(data, filename=None, sort_key="Namn"):
         get_color = build_category_colors(data_sorted)
 
         # Header row: bold white, dark bg, freeze, autofilter
-        for col_num, col in enumerate(COLUMN_ORDER, 1):
+        for col_num, col in enumerate(PRODUCT_COLUMN_ORDER, 1):
             cell = ws.cell(row=1, column=col_num, value=col)
             cell.font = Font(bold=True, color="FFFFFFFF")
             cell.fill = PatternFill("solid", fgColor="FF212121")
@@ -93,7 +131,7 @@ def export_to_xlsx(data, filename=None, sort_key="Namn"):
         band_color = PatternFill("solid", fgColor="FFF5F5F5")
         for row_num, row in enumerate(data_sorted, 2):
             is_band = (row_num % 2 == 0)
-            for col_num, col in enumerate(COLUMN_ORDER, 1):
+            for col_num, col in enumerate(PRODUCT_COLUMN_ORDER, 1):
                 value = row.get(col, "")
                 cell = ws.cell(row=row_num, column=col_num, value=value)
                 if is_band:
@@ -116,7 +154,7 @@ def export_to_xlsx(data, filename=None, sort_key="Namn"):
                                     right=Side(style="thin", color="FFD3D3D3"),
                                     top=Side(style="thin", color="FFD3D3D3"),
                                     bottom=Side(style="thin", color="FFD3D3D3"))
-        for col_num, col in enumerate(COLUMN_ORDER, 1):
+        for col_num, col in enumerate(PRODUCT_COLUMN_ORDER, 1):
             max_length = max(
                 [len(str(row.get(col, ""))) for row in data_sorted] + [len(col)]
             )

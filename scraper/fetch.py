@@ -1,3 +1,41 @@
+"""
+scraper/fetch.py
+
+Advanced HTTP fetching utilities for the Table.se Scraper Suite.
+
+Features:
+    - Robust synchronous and asynchronous URL fetching with retries, throttling, proxy, and rotating User-Agent.
+    - Thread-local sessions with retry logic and default headers.
+    - Optional caching (requests-cache), and Playwright support for JavaScript-heavy pages.
+    - BeautifulSoup integration for HTML parsing.
+    - Hooks for request/response logging and error alerting.
+    - Utility to enable HTTP cache (requests-cache) for efficiency.
+    - Configurable for proxies, throttle, retry, headers, and advanced use cases.
+
+USAGE:
+    from scraper.fetch import fetch_url, get_soup, enable_requests_cache
+
+    html = fetch_url("https://www.table.se")
+    soup = get_soup("https://www.table.se")
+
+    # For async:
+    # import asyncio
+    # html = asyncio.run(fetch_url_async("https://www.table.se"))
+
+    # To enable caching:
+    # enable_requests_cache(backend="sqlite", expire_after=3600)
+
+DEPENDENCIES:
+    - requests, aiohttp
+    - BeautifulSoup (bs4)
+    - requests-cache (optional)
+    - playwright (optional for JS-heavy pages)
+    - urllib3
+
+Author: bonkbusiness
+License: MIT
+"""
+
 import threading
 import time
 import random
@@ -10,23 +48,21 @@ try:
     from scraper.logging import get_logger
     logger = get_logger("fetch")
 except ImportError:
-    import scraper.logging
+    import logging
     logger = logging.getLogger("fetch")
 
 DEFAULT_USER_AGENTS = [
-    # Realistic and rotating user agents
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
     "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:115.0) Gecko/20100101 Firefox/115.0",
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
     "Mozilla/5.0 (Linux; Android 12; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
-    # Add more as needed
+    # Add more as needed for better anti-blocking
 ]
 DEFAULT_HEADERS = {
     "User-Agent": random.choice(DEFAULT_USER_AGENTS),
     "Accept-Language": "sv,en;q=0.9",
 }
-# Example proxy list - can be empty if not using proxies
 PROXY_LIST = [
     # "http://user:pass@proxy1.example.com:8000",
     # "http://proxy2.example.com:8080",
@@ -35,15 +71,17 @@ PROXY_LIST = [
 
 thread_local = threading.local()
 
-# 2. Advanced Throttling & Rate Limiting with jitter
 def throttle_delay(base_delay=0.7, jitter=0.3):
+    """
+    Sleep for a randomized duration to throttle requests and avoid detection.
+    """
     delay = base_delay + random.uniform(0, jitter)
     logger.debug(f"Sleeping for {delay:.2f}s to throttle requests.")
     time.sleep(delay)
 
 def get_session():
     """
-    Get a thread-local requests.Session with retry logic and default headers.
+    Return a thread-local requests.Session with retry logic and default headers.
     """
     if not hasattr(thread_local, "session"):
         session = requests.Session()
@@ -57,30 +95,37 @@ def get_session():
         adapter = HTTPAdapter(max_retries=retries)
         session.mount("https://", adapter)
         session.mount("http://", adapter)
-        # User-Agent is randomized per-request (see below); so only set Accept-Language here
         session.headers.update({"Accept-Language": "sv,en;q=0.9"})
         thread_local.session = session
     return thread_local.session
 
-# 4. User-Agent Rotation
 def get_random_user_agent():
+    """
+    Select a random User-Agent string.
+    """
     return random.choice(DEFAULT_USER_AGENTS)
 
-# 5. Better Error Handling / Retry Logic (with hooks for fallback or alerting)
 def log_and_alert_error(url, error):
+    """
+    Log and hook for alerting/metrics on fetch error.
+    """
     logger.error(f"ERROR fetching {url}: {error}")
-    # Hook for alerting/metrics (e.g., send to monitoring, email, etc.)
-    # pass
+    # Hook for alerting: integrate with monitoring/email/etc.
 
-# 6. Request/Response Hooks (stub - can add custom logic)
 def pre_request_hook(url, headers, proxies):
+    """
+    Hook for logging/debugging before each request.
+    """
     logger.debug(f"Requesting URL: {url} | Headers: {headers} | Proxies: {proxies}")
 
 def post_response_hook(url, response):
-    logger.info(f"Fetched {url} [status {response.status_code}]")
-    # Hook for metrics, custom validation, etc.
+    """
+    Hook for logging/metrics after each response.
+    """
+    logger.info(f"Fetched {url} [status {getattr(response, 'status', response.status_code)}]")
 
-# 7. Asynchronous Fetching with aiohttp (bonus: compatible with cache if needed)
+# --- Asynchronous Fetching (aiohttp) ---
+
 import asyncio
 import aiohttp
 
@@ -93,7 +138,18 @@ async def fetch_url_async(
     proxies: list = None
 ) -> str:
     """
-    Asynchronously fetch a URL and return its text, with retries, throttling, and random User-Agent/proxy.
+    Asynchronously fetch a URL with retries, throttling, and rotating User-Agent/proxy.
+
+    Args:
+        url (str): URL to fetch.
+        headers (dict): Additional headers.
+        timeout (int): Timeout per request.
+        throttle (float): Base throttle delay.
+        max_retries (int): Number of attempts.
+        proxies (list): List of proxies.
+
+    Returns:
+        str: Response text.
     """
     headers = headers or {}
     attempt = 0
@@ -116,7 +172,8 @@ async def fetch_url_async(
     log_and_alert_error(url, f"Giving up after {max_retries} attempts.")
     raise Exception(f"Giving up on {url} after {max_retries} attempts")
 
-# 8. Caching Layer with requests-cache (optional, opt-in)
+# --- requests-cache Support (optional) ---
+
 try:
     import requests_cache
     CACHE_ENABLED = True
@@ -124,17 +181,39 @@ except ImportError:
     CACHE_ENABLED = False
 
 def enable_requests_cache(backend="sqlite", expire_after=3600, cache_name="http_cache"):
+    """
+    Enable requests-cache for persistent HTTP caching.
+
+    Args:
+        backend (str): Backend type (e.g. 'sqlite').
+        expire_after (int): Expiry in seconds.
+        cache_name (str): Name for cache DB/file.
+
+    Returns:
+        None
+    """
     if CACHE_ENABLED:
         requests_cache.install_cache(cache_name=cache_name, backend=backend, expire_after=expire_after)
         logger.info(f"Enabled requests-cache: backend={backend}, expire_after={expire_after}s, cache_name={cache_name}")
     else:
         logger.warning("requests-cache not installed. Caching disabled.")
 
-# 9. Headless Browser Support (fallback for JS-heavy pages)
+# --- Playwright Headless Browser Fetching (optional) ---
+
 def fetch_with_playwright(url, timeout=30, headless=True):
     """
-    Fetch page content using Playwright (for JavaScript-heavy sites).
-    Requires playwright and playwright browsers installed!
+    Fetch page content using Playwright for JavaScript-heavy sites.
+
+    Args:
+        url (str): URL to fetch.
+        timeout (int): Timeout in seconds.
+        headless (bool): Run browser headless.
+
+    Returns:
+        str: The HTML content.
+
+    Raises:
+        ImportError: If Playwright is not installed.
     """
     try:
         from playwright.sync_api import sync_playwright
@@ -151,6 +230,8 @@ def fetch_with_playwright(url, timeout=30, headless=True):
         logger.info(f"Fetched with Playwright: {url}")
         return html
 
+# --- Synchronous Fetching ---
+
 def fetch_url(
     url: str,
     headers: dict = None,
@@ -162,8 +243,24 @@ def fetch_url(
     proxies: list = None
 ) -> str:
     """
-    Fetch a URL and return its text, with retries, advanced throttling, random User-Agent & optional proxy.
+    Fetch a URL synchronously with retries, advanced throttling, rotating UA & optional proxy.
     Optionally use requests-cache or Playwright for JS-heavy sites.
+
+    Args:
+        url (str): URL to fetch.
+        headers (dict): Additional headers.
+        timeout (int): Timeout per request.
+        throttle (float): Base throttle delay.
+        max_retries (int): Number of attempts.
+        use_cache (bool): Use HTTP cache if enabled.
+        use_playwright (bool): Use Playwright for JS-heavy sites.
+        proxies (list): List of proxies.
+
+    Returns:
+        str: Response text.
+
+    Raises:
+        Exception: If all attempts fail.
     """
     if use_playwright:
         return fetch_with_playwright(url, timeout=timeout)
@@ -175,7 +272,6 @@ def fetch_url(
         pre_request_hook(url, all_headers, proxy)
         try:
             session = get_session()
-            # requests-cache is auto-installed if enabled
             resp = session.get(
                 url,
                 timeout=timeout,
@@ -204,7 +300,20 @@ def get_soup(
     proxies: list = None
 ):
     """
-    Fetch a URL and return a BeautifulSoup object, with retries, throttling, rotating UA, etc.
+    Fetch a URL and return a BeautifulSoup object with advanced retry/throttling.
+
+    Args:
+        url (str): URL to fetch.
+        throttle (float): Base delay between requests.
+        max_retries (int): Number of tries.
+        headers (dict): Extra headers.
+        timeout (int): Timeout per request.
+        use_cache (bool): Use HTTP cache if enabled.
+        use_playwright (bool): Use Playwright for JS-heavy pages.
+        proxies (list): List of proxies.
+
+    Returns:
+        BeautifulSoup: Parsed soup object.
     """
     html = fetch_url(
         url,
@@ -217,9 +326,3 @@ def get_soup(
         proxies=proxies
     )
     return BeautifulSoup(html, "html.parser")
-
-# Example usage for enabling cache
-# enable_requests_cache(backend="sqlite", expire_after=3600)
-
-# Example async usage:
-# asyncio.run(fetch_url_async("https://www.table.se"))
