@@ -81,7 +81,6 @@ def _parse_more_info(more_info):
     if not more_info:
         return info_dict
     for p in more_info.find_all('p'):
-        # Clean out HTML tags and unescape entities
         text = ''.join([elem if isinstance(elem, str) else elem.get_text() for elem in p.contents]).strip()
         text = strip_html(text)
         text = normalize_whitespace(text)
@@ -92,16 +91,39 @@ def _parse_more_info(more_info):
             br_split = [t.strip() for t in text.split("<br />") if t.strip()]
             if len(br_split) > 1:
                 value = " ".join(br_split[1:])
-            info_dict["Mått (text)"] = value
+            info_dict["Data (text)"] = value  # 5. Change key name
         elif ":" in text:
             label, value = text.split(":", 1)
-            info_dict[label.strip().capitalize()] = value.strip()
+            label = label.strip().capitalize()
+            if label == "Mått":
+                label = "Data (text)"  # 5. Change key name
+            info_dict[label] = value.strip()
     return info_dict
 
-def scrape_product(product_url):
+def get_category_hierarchy_from_url(url, category_tree):
+    """
+    Given a product URL and the category tree, return (parent, sub) category names.
+    Returns ('', '') if not found.
+    """
+    def search(node, parent_name=""):
+        if node.get("url") and node["url"].rstrip('/') in url.rstrip('/'):
+            return (parent_name, node.get("name", ""))
+        for sub in node.get("subs", []):
+            found = search(sub, node.get("name", ""))
+            if found != ("", ""):
+                return found
+        return ("", "")
+    for node in category_tree:
+        result = search(node)
+        if result != ("", ""):
+            return result
+    return ("", "")
+
+def scrape_product(product_url, category_tree=None):
     """
     Scrape all relevant product data fields from a table.se product page.
     Uses robust selectors for resilience.
+    category_tree: Optional. If given, used to derive "Kategori (parent)" and "Kategori (sub)".
     """
     if is_excluded(product_url):
         return None
@@ -125,14 +147,17 @@ def scrape_product(product_url):
         "h1"
     ]) or normalize_whitespace(_get_text_or_empty(soup, ".edgtf-single-product-title"))
 
-    artikelnummer = robust_select_one(soup, [
+    # 1. Artikelnummer: only digits
+    artikelnummer_raw = robust_select_one(soup, [
         ".sku",
         "[itemprop='sku']",
         "[data-product-sku]",
         ".woocommerce-product-details__short-description strong",
         "span:contains('Artikelnummer') + span"
     ]) or extract_only_numbers(_get_text_or_empty(soup, ".woocommerce-product-details__short-description strong"))
+    artikelnummer_digits = "".join(filter(str.isdigit, str(artikelnummer_raw)))
 
+    # 3. Pris inkl. moms (fix null and fallback)
     pris_inkl_raw = robust_select_one(soup, [
         ".product_price_in",
         ".price .amount",
@@ -141,11 +166,29 @@ def scrape_product(product_url):
         "[itemprop='price']"
     ]) or _get_text_or_empty(soup, ".product_price_in")
     pris_inkl = parse_price(pris_inkl_raw)
+    if pris_inkl is None or pris_inkl == "":
+        pris_inkl = 0
 
+    # 2. Pris exkl. moms (no decimals for zero)
     pris_exkl_raw = robust_select_one(soup, [
         ".product_price_ex"
     ]) or _get_text_or_empty(soup, ".product_price_ex")
     pris_exkl = parse_price(pris_exkl_raw)
+    if pris_exkl is None or pris_exkl == "":
+        pris_exkl = 0
+
+    # 2. Remove decimals if value is 0
+    def price_format(val):
+        try:
+            val_float = float(val)
+            if val_float == 0:
+                return "0"
+            return str(val_float) if "." not in str(val) or val_float % 1 != 0 else str(int(val_float))
+        except Exception:
+            return val
+
+    pris_exkl_fmt = price_format(pris_exkl)
+    pris_inkl_fmt = price_format(pris_inkl)
 
     produktbild_url = robust_select_attr(soup, [
         ".woocommerce-product-gallery__image img",
@@ -171,9 +214,10 @@ def scrape_product(product_url):
     farg = info_dict.get('Färg', '')
     material = info_dict.get('Material', '')
     serie = info_dict.get('Serie', '')
-    matt_text = info_dict.get('Mått (text)', '')
+    data_text = info_dict.get('Data (text)', '')  # 5. Use new key
 
-    mått_dict = parse_measurements(matt_text) if matt_text else {}
+    # 4. Parse out "Data (text)" (formerly "Mått (text)") into subfields
+    mått_dict = parse_measurements(data_text) if data_text else {}
     diameter_v, diameter_e = parse_value_unit(info_dict.get('Diameter', ''))
     kap_v, kap_e = parse_value_unit(info_dict.get('Kapacitet', ''))
     vol_v, vol_e = parse_value_unit(info_dict.get('Volym', ''))
@@ -182,26 +226,30 @@ def scrape_product(product_url):
     höjd_v, höjd_e = mått_dict.get("Höjd (värde)"), mått_dict.get("Höjd (enhet)")
     djup_v, djup_e = mått_dict.get("Djup (värde)"), mått_dict.get("Djup (enhet)")
 
-    # Canonical URL for robust product URL, fallback to input
     canonical = soup.find("link", rel="canonical")
     produkt_url = canonical["href"] if (canonical and canonical.has_attr("href") and validate_url(canonical["href"])) else product_url
 
+    # 6. Kategori (parent) and Kategori (sub)
+    kategori_parent, kategori_sub = ("", "")
+    if category_tree is not None:
+        kategori_parent, kategori_sub = get_category_hierarchy_from_url(produkt_url, category_tree)
+
     content_hash = hash_content(soup.prettify())
-    cached = get_cached_product(artikelnummer, content_hash)
+    cached = get_cached_product(artikelnummer_digits, content_hash)
     if cached:
         return cached
 
     data = {
         "Namn": namn,
-        "Artikelnummer": artikelnummer,
+        "Artikelnummer": artikelnummer_digits,
         "Färg": farg,
         "Material": material,
         "Serie": serie,
-        "Pris exkl. moms (värde)": pris_exkl,
-        "Pris exkl. moms (enhet)": "kr" if pris_exkl else "",
-        "Pris inkl. moms (värde)": pris_inkl,
-        "Pris inkl. moms (enhet)": "kr" if pris_inkl else "",
-        "Mått (text)": matt_text,
+        "Pris exkl. moms (värde)": pris_exkl_fmt,
+        "Pris exkl. moms (enhet)": "kr" if pris_exkl_fmt else "",
+        "Pris inkl. moms (värde)": pris_inkl_fmt,
+        "Pris inkl. moms (enhet)": "kr" if pris_inkl_fmt else "",
+        "Data (text)": data_text,  # 5. Changed key name
         "Längd (värde)": längd_v,
         "Längd (enhet)": längd_e,
         "Bredd (värde)": bredd_v,
@@ -216,9 +264,11 @@ def scrape_product(product_url):
         "Kapacitet (enhet)": kap_e,
         "Volym (värde)": vol_v,
         "Volym (enhet)": vol_e,
+        "Kategori (parent)": kategori_parent,
+        "Kategori (sub)": kategori_sub,
         "Produktbild-URL": produktbild_url,
         "Produkt-URL": produkt_url,
         "Beskrivning": beskrivning
     }
-    update_cache(artikelnummer, data, content_hash)
+    update_cache(artikelnummer_digits, data, content_hash)
     return data
