@@ -13,7 +13,7 @@ Functions:
 
 from .utils import (
     extract_only_number_value, parse_value_unit, parse_measurements, extract_only_numbers,
-    parse_price, strip_html, validate_url, normalize_whitespace, safe_get
+    parse_price, strip_html, validate_url, normalize_whitespace, safe_get, make_output_filename
 )
 from .cache import get_cached_product, update_cache, hash_content
 from exclusions import is_excluded
@@ -75,6 +75,7 @@ def extract_products_from_category(category_url):
 def extract_all_product_urls(category_tree):
     """
     Traverse the full category tree and extract all unique product URLs.
+    Uses make_output_filename from scraper.utils if outputting URLs to a file.
     """
     product_urls = set()
     def traverse(node):
