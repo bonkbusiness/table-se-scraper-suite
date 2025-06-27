@@ -8,6 +8,7 @@ A robust, modular Python suite for scraping and exporting product data from [tab
 
 ## Features
 
+- **Product Datapoints:** All modules (scraper, exporters, QC) now use a harmonized, comprehensive set of product fields
 - **Modular architecture:** Each workflow (category, product, export, QC) is a dedicated module.
 - **Parallel scraping:** Categories and products fetched in parallel, with retries & throttling.
 - **Exclusion logic:** Easily skip unwanted categories/products via `exclusions.py`.
@@ -18,6 +19,66 @@ A robust, modular Python suite for scraping and exporting product data from [tab
 - **Extensible:** Add new exporters, scrapers, or QC logic easily.
 - **Testing:** Unit tests for core modules; testable with mocks.
 - **Documentation:** Docstrings, usage guides, and developer notes.
+
+---
+
+# Changelog
+
+## v1.1 (2025-06-27)
+
+### Harmonization & Refactoring
+
+- **Standardized Product Datapoints:**  
+  All modules (scraper/product.py, exporter/xlsx.py, exporter/csv.py, scraper/scanner.py, scraper/utils.py) use a unified, documented set of product fields, ensuring that exports and QC are always in sync with the scraper.
+- **Exporter Updates:**  
+  Both CSV and XLSX exporters use the full field set, including new fields like `Extra data`, `Beskrivning`, and all measurements (length, width, height, etc.).
+- **QC/Validation Improvements:**  
+  QC routines now validate presence and formatting of these standardized fields.
+- **Extensive Documentation:**  
+  All core files now include clear docstrings, usage examples, and documentation for every field exported and processed.
+- **README Update:**  
+  Full list of product fields and new workflow explanations added for clarity.
+- **Developer Notes:**  
+  Added guidance to keep field lists in sync across modules.
+- **Bugfixes:**  
+  - Fixed category key harmonization in scanner and utils.
+  - Improved error handling/logging in all pipelines.
+
+
+### v1.0 (2024-2025)
+
+**Initial Release & Modularization**
+- Split legacy monoliths (`table_se_scraper.py`, etc.) into:
+    - `scraper/category.py`: Category tree extraction (all levels, exclusions)
+    - `scraper/product.py`: Product URL extraction (pagination, exclusions), product data extraction
+    - `scraper/utils.py`: All helpers (color, value/unit parsing, filenames, deduplication, etc.)
+    - `scraper/backend.py`: Parallel scraping, orchestration, CLI
+    - `exporter/xlsx.py`, `csv.py`, `qc.py`: Data output, deduplication, completeness/error reporting
+    - `exclusions.py`: Central skip logic
+    - `main.py`: CLI entrypoint, config, wiring
+
+**Implemented**
+- Parallel scraping with retries, throttling, and central logging
+- Full product field extraction (name, SKU, price, sizes, colors, materials, image, etc.)
+- Caching for repeated runs; change-detection for products
+- QC: duplicate and incomplete product detection
+- Automated output file naming
+- Exclusion logic for categories/products
+- Modular, testable code with docstrings everywhere
+- Unit tests for all major modules
+- Output: XLSX, CSV, error reports
+- Developer checklist and docs
+
+**Planned/Upcoming**
+- Async/streamed scraping (aiohttp)
+- More exporters (API, DB)
+- Progress bars (tqdm)
+- Incremental scraping/resume support
+- Dockerization
+- Config via YAML/ENV
+- External monitoring (Sentry, Slack)
+- CI/CD pipeline
+- Advanced error handling
 
 ---
 
@@ -218,45 +279,6 @@ All category nodes/dicts use this canonical structure:
 ```
 
 This structure is consistent across `category.py`, `product.py`, exporters, and tests.
-
----
-
-## Changelog
-
-### v1.0 (2024-2025)
-
-**Initial Release & Modularization**
-- Split legacy monoliths (`table_se_scraper.py`, etc.) into:
-    - `scraper/category.py`: Category tree extraction (all levels, exclusions)
-    - `scraper/product.py`: Product URL extraction (pagination, exclusions), product data extraction
-    - `scraper/utils.py`: All helpers (color, value/unit parsing, filenames, deduplication, etc.)
-    - `scraper/backend.py`: Parallel scraping, orchestration, CLI
-    - `exporter/xlsx.py`, `csv.py`, `qc.py`: Data output, deduplication, completeness/error reporting
-    - `exclusions.py`: Central skip logic
-    - `main.py`: CLI entrypoint, config, wiring
-
-**Implemented**
-- Parallel scraping with retries, throttling, and central logging
-- Full product field extraction (name, SKU, price, sizes, colors, materials, image, etc.)
-- Caching for repeated runs; change-detection for products
-- QC: duplicate and incomplete product detection
-- Automated output file naming
-- Exclusion logic for categories/products
-- Modular, testable code with docstrings everywhere
-- Unit tests for all major modules
-- Output: XLSX, CSV, error reports
-- Developer checklist and docs
-
-**Planned/Upcoming**
-- Async/streamed scraping (aiohttp)
-- More exporters (API, DB)
-- Progress bars (tqdm)
-- Incremental scraping/resume support
-- Dockerization
-- Config via YAML/ENV
-- External monitoring (Sentry, Slack)
-- CI/CD pipeline
-- Advanced error handling
 
 ---
 

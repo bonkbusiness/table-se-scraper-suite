@@ -55,6 +55,9 @@ from .category import extract_category_tree
 from .product import extract_products_from_category, scrape_product
 from exclusions import is_excluded
 
+# Progress bars
+from tqdm import tqdm  # pip install tqdm
+
 logger = logging.getLogger("scraper.backend")
 logging.basicConfig(
     level=logging.INFO,
@@ -118,9 +121,12 @@ def collect_product_urls(
                     logger.error(f"Failed to fetch category {url} after {retries+1} attempts")
         return []
 
+    bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_url = {executor.submit(fetch_products, url): url for url in category_urls}
-        for future in as_completed(future_to_url):
+        # tqdm for categories processed
+        for future in tqdm(as_completed(future_to_url), total=len(future_to_url),
+                           desc="Categories Processed", bar_format=bar_format):
             url = future_to_url[future]
             try:
                 urls = future.result()
@@ -189,9 +195,12 @@ def scrape_products(
                     logger.error(f"Failed to scrape {url} after {retries+1} attempts")
         return None
 
+    bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_url = {executor.submit(process, url): url for url in product_urls}
-        for future in as_completed(future_to_url):
+        # tqdm for products scraped
+        for future in tqdm(as_completed(future_to_url), total=len(future_to_url),
+                           desc="Products Scraped", bar_format=bar_format):
             try:
                 prod = future.result()
                 if prod:
@@ -239,8 +248,19 @@ def main():
     # 5. Export result (only valid products)
     if args.output is None:
         args.output = make_output_filename('products', 'json')
+    bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
     with open(args.output, "w", encoding="utf-8") as f:
-        json.dump(filtered_products, f, ensure_ascii=False, indent=2)
+        # tqdm for exporting (writing) products
+        for idx, product in enumerate(tqdm(filtered_products, desc="Products Exported", bar_format=bar_format)):
+            if idx == 0:
+                f.write("[\n")
+            else:
+                f.write(",\n")
+            json.dump(product, f, ensure_ascii=False, indent=2)
+        if filtered_products:
+            f.write("\n]\n")
+        else:
+            f.write("[]\n")
     logger.info(f"Exported {len(filtered_products)} products to {args.output}")
 
 if __name__ == "__main__":
