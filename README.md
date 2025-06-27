@@ -55,6 +55,60 @@ Or use the main script, which exports automatically after scraping.
 
 ---
 
+## Running in Google Colab
+
+You can run this project in [Google Colab](https://colab.research.google.com/):
+
+### 1. Clone the repository
+
+```python
+!git clone https://github.com/bonkbusiness/table-se-scraper-suite.git
+%cd table-se-scraper-suite
+```
+
+### 2. Install dependencies
+
+```python
+!pip install -r requirements.txt
+```
+
+If you get errors about missing system libraries (like `libxml2`), run:
+
+```python
+!apt-get install -y libxml2-dev libxslt1-dev
+```
+
+### 3. Run the scraper
+
+```python
+!python main.py --max-workers 4 --retries 2 --output products.json --throttle 1.0
+```
+You may want to use fewer workers (e.g. `--max-workers 2`) to avoid resource limits in Colab.
+
+### 4. Download your results
+
+```python
+from google.colab import files
+files.download('products.json')
+# Or:
+# files.download('export/products.xlsx')
+```
+
+### 5. Analyze results in Colab
+
+```python
+import pandas as pd
+df = pd.read_json('products.json')
+df.head()
+```
+
+**Tips:**
+- Colab may time out or disconnect on long runs; start with smaller test runs.
+- For very large scrapes, consider running locally or on a server.
+- Always respect table.se's robots.txt and terms of service.
+
+---
+
 ## Usage: Common Workflows
 
 ### Category Extraction
