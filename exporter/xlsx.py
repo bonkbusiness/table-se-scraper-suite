@@ -1,37 +1,30 @@
 """
 exporter/xlsx.py
 
-Exports product dictionaries to XLSX (Excel), with support for Table.se's product field set,
-parent/subcategory columns, and QC pipeline integration.
+Exports product dictionaries to XLSX (Excel), with QC pipeline integration, parent/subcategory coloring
+(using category color logic), improved logging, and enhanced layout/styling.
 
 Features:
 - Exports a list of product dicts to an XLSX file, sorted by a configurable key ("Namn" by default).
 - Uses a fixed column order for consistency with Table.se exports.
 - Includes "Kategori (parent)" and "Kategori (sub)" columns for parent and subcategory information.
+- Applies unique pastel colors to category/subcategory cells using logic from scraper.utils.
+- Improved styling: header freeze, alternating row banding, autofilter, wrapped text, etc.
 - Uses logging for status and error messages (integrates with scraper.logging).
-- Can be used directly for exporting already quality-controlled data, or via the QC pipeline entrypoint.
-- Compatible with the man-in-the-middle QC logic in exporter/qc.py.
+- Compatible with QC pipeline (via export_products_with_qc).
 
 API:
 - export_to_xlsx(data, filename, sort_key="Namn")
-    Exports the given list of dicts to an XLSX file.
-    Returns the filename on success, or None on error.
-
 - export_products_with_qc(products, filename, error_filename=None)
-    Orchestrates deduplication and completeness-checking (via exporter.qc), then exports only valid products to XLSX.
-    Optionally exports products with missing fields to a separate XLSX.
-    Returns the filename of the main XLSX on success, or None on error.
-
-Typical usage:
-    from exporter.xlsx import export_products_with_qc
-    export_products_with_qc(products, "output.xlsx", error_filename="errors.xlsx")
 """
 
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.worksheet.dimensions import ColumnDimension
 import os
 from scraper.logging import get_logger
+from scraper.utils import build_category_colors
 
 logger = get_logger("xlsx-export")
 
@@ -40,14 +33,6 @@ def export_to_xlsx(data, filename, sort_key="Namn"):
     Export a list of product dicts to XLSX, sorted by sort_key.
     Each product dict may include 'Kategori (parent)' and 'Kategori (sub)' fields for parent and subcategories.
     Returns the filename or None on error.
-
-    Args:
-        data: List[Dict[str, Any]] -- List of product dictionaries.
-        filename: str -- Path to output XLSX file.
-        sort_key: str -- Which field to sort products by (default "Namn").
-
-    Returns:
-        str or None
     """
     COLUMN_ORDER = [
         "Namn",
@@ -81,20 +66,56 @@ def export_to_xlsx(data, filename, sort_key="Namn"):
         wb = Workbook()
         ws = wb.active
         ws.title = "Produkter"
-        # Header row
+
+        # Build color lookup for categories/subcategories
+        get_color = build_category_colors(data_sorted)
+
+        # Header row: bold white, dark bg, freeze, autofilter
         for col_num, col in enumerate(COLUMN_ORDER, 1):
             cell = ws.cell(row=1, column=col_num, value=col)
             cell.font = Font(bold=True, color="FFFFFFFF")
             cell.fill = PatternFill("solid", fgColor="FF212121")
-            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             cell.border = Border(bottom=Side(style="medium", color="FFB0BEC5"))
+        ws.freeze_panes = ws["A2"]
+        ws.auto_filter.ref = ws.dimensions
+
         # Data rows
+        band_color = PatternFill("solid", fgColor="FFF5F5F5")
         for row_num, row in enumerate(data_sorted, 2):
+            is_band = (row_num % 2 == 0)
             for col_num, col in enumerate(COLUMN_ORDER, 1):
-                ws.cell(row=row_num, column=col_num, value=row.get(col, ""))
-        # Autosize columns
+                value = row.get(col, "")
+                cell = ws.cell(row=row_num, column=col_num, value=value)
+                # Banding for rows
+                if is_band:
+                    cell.fill = band_color
+                # Category parent/sub coloring
+                if col == "Kategori (parent)" or col == "Kategori (sub)":
+                    color = get_color(row)
+                    if color and color != "FFFFFFFF":
+                        cell.fill = PatternFill("solid", fgColor=color)
+                # Wrap long text
+                cell.alignment = Alignment(wrap_text=True, vertical="center")
+                # Hyperlinks for URLs
+                if col in ("Produktbild-URL", "Produkt-URL") and value:
+                    cell.hyperlink = value
+                    cell.style = "Hyperlink"
+                # Alignment for numbers
+                if any(kw in col for kw in ("värde", "Pris", "Längd", "Bredd", "Höjd", "Djup", "Diameter", "Kapacitet", "Volym")):
+                    cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=True)
+                elif col not in ("Produktbild-URL", "Produkt-URL"):
+                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                cell.border = Border(left=Side(style="thin", color="FFD3D3D3"),
+                                    right=Side(style="thin", color="FFD3D3D3"),
+                                    top=Side(style="thin", color="FFD3D3D3"),
+                                    bottom=Side(style="thin", color="FFD3D3D3"))
+        # Autosize columns to content
         for col_num, col in enumerate(COLUMN_ORDER, 1):
-            ws.column_dimensions[get_column_letter(col_num)].width = max(12, len(col) + 2)
+            max_length = max(
+                [len(str(row.get(col, ""))) for row in data_sorted] + [len(col)]
+            )
+            ws.column_dimensions[get_column_letter(col_num)].width = min(max(12, max_length + 2), 50)
         wb.save(filename)
         logger.info(f"Export till XLSX klar: {filename}")
         return filename
