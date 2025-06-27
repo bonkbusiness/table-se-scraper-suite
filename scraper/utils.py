@@ -4,6 +4,9 @@ from typing import Optional, Any, Dict, List
 from html import unescape
 import os
 from datetime import datetime
+from urllib.parse import urljoin
+
+# --- Output Filename Utility ---
 
 def make_output_filename(prefix, ext, folder=None, timestamp=None):
     """
@@ -152,8 +155,6 @@ def parse_measurements(matt_text: Optional[str]) -> Dict[str, Optional[str]]:
 
 # --- URL Utilities ---
 
-from urllib.parse import urljoin
-
 def safe_urljoin(base: str, url: str) -> str:
     """Join a base URL and relative URL safely."""
     return urljoin(base, url)
@@ -186,10 +187,17 @@ def has_duplicates(items: List[Any]) -> bool:
     """Returns True if there are duplicates in the list."""
     return len(items) != len(set(items))
 
-# --- Directory and File Utilities ---
+def deduplicate(items: List[Any]) -> List[Any]:
+    """Remove duplicates while preserving order."""
+    seen = set()
+    out = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            out.append(item)
+    return out
 
-import os
-from datetime import datetime
+# --- Directory and File Utilities ---
 
 def ensure_dir(path: str):
     """Ensure a directory exists, creating it if needed."""
@@ -240,12 +248,12 @@ def sort_products(data: List[Dict], sort_key="Namn") -> List[Dict]:
 
 # --- Color Generation and Category Color Mapping (for visualization) ---
 
-def pastel_gradient_color(seed: int, total: int, idx: int, sat=0.25, light=0.85) -> str:
+def pastel_gradient_color(level: int, total_levels: int = 3, sat=0.25, light=0.85) -> str:
     """
     Generates distinct pastel colors in hex along a hue gradient.
     """
     import colorsys
-    hue = (seed + idx / max(total, 1)) % 1.0
+    hue = (level / max(total_levels, 1)) % 1.0
     r, g, b = colorsys.hls_to_rgb(hue, light, sat)
     return "#{:02X}{:02X}{:02X}".format(int(r*255), int(g*255), int(b*255))
 
@@ -267,5 +275,5 @@ def build_category_colors(data: List[Dict[str, Any]]):
     cat2idx = {c: i for i, c in enumerate(cats)}
     def get_color(row):
         idx = cat2idx.get(get_category_levels(row), 0)
-        return pastel_gradient_color(0, len(cat2idx), idx)
+        return pastel_gradient_color(idx, len(cat2idx))
     return get_color
