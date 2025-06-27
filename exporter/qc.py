@@ -3,24 +3,28 @@ exporter/qc.py
 
 Quality control and data validation utilities for the Table.se scraper suite.
 
-This module provides:
-- Deduplication of products (with normalization)
-- Checking field completeness
-- Finding duplicate products (with normalization)
-- Exporting validation errors to XLSX
-- (Optional) Deep product validation via integration with scanner.validate_product
+This module acts as a "man-in-the-middle" between cache.py and exporters (xlsx.py, csv.py).
+It ensures all product data is deduplicated, checked for completeness, and optionally validated
+before being passed to exporters. It also provides error reporting for invalid records.
 
-All functions use logging for reporting and diagnostics.
+Exports:
+- qc_and_export_to_xlsx
+- qc_and_export_to_csv
+
+QC functions (deduplication, completeness, etc.) are also available for direct use.
 """
 
 from typing import List, Dict, Any, Optional, Tuple
 from openpyxl import Workbook
+import csv
+import os
 
 from scraper.logging import get_logger
 from scraper.utils import normalize_text, normalize_whitespace
-# If you want to use more, import as needed.
 
 logger = get_logger("qc")
+
+# === Core QC Utility Functions ===
 
 def deduplicate_products(
     products: List[Dict[str, Any]],
@@ -28,21 +32,12 @@ def deduplicate_products(
 ) -> List[Dict[str, Any]]:
     """
     Remove duplicate products based on a tuple of normalized key fields.
-
-    Args:
-        products (List[Dict[str, Any]]): List of product dictionaries.
-        key_fields (Optional[List[str]]): Fields to use for deduplication 
-            (default: ["Namn", "Artikelnummer"]).
-
-    Returns:
-        List[Dict[str, Any]]: Deduplicated list of products.
     """
     if not key_fields:
         key_fields = ["Namn", "Artikelnummer"]
     seen = set()
     deduped = []
     for prod in products:
-        # Normalize each key field value for robust deduplication
         key = tuple(normalize_text(normalize_whitespace(str(prod.get(field, "")))) for field in key_fields)
         if key not in seen:
             seen.add(key)
@@ -58,21 +53,12 @@ def check_field_completeness(
 ) -> List[Dict[str, Any]]:
     """
     Identify products missing any required field.
-
-    Args:
-        products (List[Dict[str, Any]]): List of product dictionaries.
-        required_fields (Optional[List[str]]): List of fields to check for completeness
-            (default: ["Namn", "Artikelnummer", "Pris inkl. moms (värde)", "Produkt-URL"]).
-
-    Returns:
-        List[Dict[str, Any]]: List of products missing at least one required field.
     """
     if not required_fields:
         required_fields = ["Namn", "Artikelnummer", "Pris inkl. moms (värde)", "Produkt-URL"]
     incomplete = []
     for prod in products:
         for field in required_fields:
-            # Normalize and check for empty/meaningless values
             value = normalize_whitespace(str(prod.get(field, "")))
             if not value:
                 logger.debug(f"Product missing field {field}: {prod.get('Artikelnummer', prod)}")
@@ -87,20 +73,11 @@ def find_duplicate_products(
 ) -> List[Tuple[Tuple, List[Dict[str, Any]]]]:
     """
     Find groups of duplicate products based on normalized key fields.
-
-    Args:
-        products (List[Dict[str, Any]]): List of product dictionaries.
-        key_fields (Optional[List[str]]): Fields to define uniqueness (default: ["Namn", "Artikelnummer"]).
-
-    Returns:
-        List[Tuple[Tuple, List[Dict[str, Any]]]]: 
-            List of (key, [product1, product2, ...]) tuples for duplicate groups.
     """
     if not key_fields:
         key_fields = ["Namn", "Artikelnummer"]
     lookup = {}
     for prod in products:
-        # Normalize each key field value
         key = tuple(normalize_text(normalize_whitespace(str(prod.get(field, "")))) for field in key_fields)
         lookup.setdefault(key, []).append(prod)
     duplicates = [(k, v) for k, v in lookup.items() if len(v) > 1]
@@ -111,13 +88,6 @@ def find_duplicate_products(
 def export_errors_to_xlsx(errors: List[Dict[str, Any]], filename: str) -> Optional[str]:
     """
     Export a list of product errors to an XLSX file.
-
-    Args:
-        errors (List[Dict[str, Any]]): List of error dicts, typically with keys "error_type" and "product".
-        filename (str): Filename for the XLSX export.
-
-    Returns:
-        Optional[str]: Filename if export succeeded, None otherwise.
     """
     if not errors:
         logger.info("No validation errors to export.")
@@ -140,20 +110,35 @@ def export_errors_to_xlsx(errors: List[Dict[str, Any]], filename: str) -> Option
         logger.error(f"Error saving errors XLSX: {e}")
         return None
 
+def export_errors_to_csv(errors: List[Dict[str, Any]], filename: str) -> Optional[str]:
+    """
+    Export a list of product errors to a CSV file.
+    """
+    if not errors:
+        logger.info("No validation errors to export.")
+        return None
+    try:
+        with open(filename, "w", newline="", encoding="utf-8") as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["Index", "Feltyp", "Produktinfo"])
+            for idx, err in enumerate(errors):
+                writer.writerow([
+                    idx + 1,
+                    err.get("error_type", str(err.get("type", ""))),
+                    str(err.get("product", err))
+                ])
+        logger.info(f"Exported errors to CSV: {filename}")
+        return filename
+    except Exception as e:
+        logger.error(f"Error saving errors CSV: {e}")
+        return None
+
 def validate_products_with_scanner(
     products: List[Dict[str, Any]],
     required_fields: Optional[List[str]] = None
 ) -> Dict[str, List[str]]:
     """
     Uses the scanner.validate_product function to get detailed error lists per product.
-
-    Args:
-        products (List[Dict[str, Any]]): List of product dictionaries.
-        required_fields (Optional[List[str]]): Fields to validate, or None for scanner default.
-
-    Returns:
-        Dict[str, List[str]]: Dictionary mapping product key (e.g., SKU or index)
-            to a list of validation error messages.
     """
     try:
         from scraper.scanner import validate_product
@@ -169,3 +154,61 @@ def validate_products_with_scanner(
             logger.debug(f"Validation issues for {key}: {issues}")
     logger.info(f"Scanner flagged {len(errors)} products with issues.")
     return errors
+
+# === Man-in-the-middle QC + Export Pipeline Functions ===
+
+def qc_and_export_to_xlsx(
+    products: List[Dict[str, Any]],
+    filename: str,
+    error_filename: Optional[str] = None
+) -> str:
+    """
+    Run full quality control on products and export valid products to XLSX.
+    Invalid products are exported to a separate errors XLSX file if error_filename is specified.
+    Returns the path to the exported XLSX file.
+    """
+    deduped = deduplicate_products(products)
+    incomplete = check_field_completeness(deduped)
+    valid = [p for p in deduped if p not in incomplete]
+    # Optionally: use scanner-based validation here and filter further if desired
+
+    # Export valid products
+    from exporter.xlsx import export_to_xlsx
+    export_to_xlsx(valid, filename)
+    logger.info(f"Exported {len(valid)} valid products to {filename}")
+
+    # Export errors if requested
+    if error_filename and incomplete:
+        export_errors_to_xlsx(
+            [{"error_type": "missing_fields", "product": p} for p in incomplete],
+            error_filename
+        )
+    return filename
+
+def qc_and_export_to_csv(
+    products: List[Dict[str, Any]],
+    filename: str,
+    error_filename: Optional[str] = None
+) -> str:
+    """
+    Run full quality control on products and export valid products to CSV.
+    Invalid products are exported to a separate errors CSV file if error_filename is specified.
+    Returns the path to the exported CSV file.
+    """
+    deduped = deduplicate_products(products)
+    incomplete = check_field_completeness(deduped)
+    valid = [p for p in deduped if p not in incomplete]
+    # Optionally: use scanner-based validation here and filter further if desired
+
+    # Export valid products
+    from exporter.csv import export_to_csv
+    export_to_csv(valid, filename)
+    logger.info(f"Exported {len(valid)} valid products to {filename}")
+
+    # Export errors if requested
+    if error_filename and incomplete:
+        export_errors_to_csv(
+            [{"error_type": "missing_fields", "product": p} for p in incomplete],
+            error_filename
+        )
+    return filename
