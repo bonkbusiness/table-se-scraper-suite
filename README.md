@@ -80,10 +80,18 @@ If you get errors about missing system libraries (like `libxml2`), run:
 
 ### 3. Run the scraper
 
+**Important:**  
+Either change the working directory to the repo and use the script name:
 ```python
+%cd table-se-scraper-suite
 !python main.py --max-workers 4 --retries 2 --output products.json --throttle 1.0
 ```
-You may want to use fewer workers (e.g. `--max-workers 2`) to avoid resource limits in Colab.
+Or, if you did not change the directory, use the full path to the script:
+```python
+!python table-se-scraper-suite/main.py --max-workers 4 --retries 2 --output products.json --throttle 1.0
+```
+
+*You may want to use fewer workers (e.g. `--max-workers 2`) to avoid resource limits in Colab.*
 
 ### 4. Download your results
 
