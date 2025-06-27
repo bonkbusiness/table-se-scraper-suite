@@ -38,14 +38,6 @@ def export_to_csv(data, filename, sort_key="Namn"):
     Export a list of product dicts to CSV, sorted by sort_key.
     Each product dict may include 'Kategori (parent)' and 'Kategori (sub)' fields for parent and subcategories.
     Returns the filename or None on error.
-
-    Args:
-        data: List[Dict[str, Any]] -- List of product dictionaries.
-        filename: str -- Path to output CSV file.
-        sort_key: str -- Which field to sort products by (default "Namn").
-
-    Returns:
-        str or None
     """
     COLUMN_ORDER = [
         "Namn",
@@ -57,7 +49,7 @@ def export_to_csv(data, filename, sort_key="Namn"):
         "Pris exkl. moms (enhet)",
         "Pris inkl. moms (värde)",
         "Pris inkl. moms (enhet)",
-        "Mått (text)",
+        "Data (text)",  # 5. Changed key name here
         "Längd (värde)", "Längd (enhet)",
         "Bredd (värde)", "Bredd (enhet)",
         "Höjd (värde)", "Höjd (enhet)",
@@ -65,8 +57,8 @@ def export_to_csv(data, filename, sort_key="Namn"):
         "Diameter (värde)", "Diameter (enhet)",
         "Kapacitet (värde)", "Kapacitet (enhet)",
         "Volym (värde)", "Volym (enhet)",
-        "Kategori (parent)",
-        "Kategori (sub)",
+        "Kategori (parent)", # 6. Add/keep
+        "Kategori (sub)",    # 6. Add/keep
         "Produktbild-URL",
         "Produkt-URL"
     ]
