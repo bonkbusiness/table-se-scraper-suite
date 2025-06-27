@@ -11,12 +11,20 @@ Functions:
     - scrape_product: Extract all relevant fields from a table.se product page into a dictionary.
 """
 
-from .utils import extract_only_number_value, parse_value_unit, parse_measurements, extract_only_numbers
+from .utils import (
+    extract_only_number_value, parse_value_unit, parse_measurements, extract_only_numbers,
+    parse_price, strip_html, validate_url, normalize_whitespace, safe_get
+)
 from .cache import get_cached_product, update_cache, hash_content
 from exclusions import is_excluded
 from bs4 import BeautifulSoup
 import requests
 from urllib.parse import urljoin, urlparse, parse_qs, urlencode, urlunparse
+
+from scanner import robust_select_one, robust_select_attr
+from logging import get_logger
+
+logger = get_logger(__name__)
 
 BASE_URL = "https://www.table.se"
 
@@ -86,7 +94,10 @@ def _parse_more_info(more_info):
     if not more_info:
         return info_dict
     for p in more_info.find_all('p'):
+        # Clean out HTML tags and unescape entities
         text = ''.join([elem if isinstance(elem, str) else elem.get_text() for elem in p.contents]).strip()
+        text = strip_html(text)
+        text = normalize_whitespace(text)
         if not text:
             continue
         if text.upper().startswith("MÅTT:"):
@@ -103,6 +114,7 @@ def _parse_more_info(more_info):
 def scrape_product(product_url):
     """
     Scrape all relevant product data fields from a table.se product page.
+    Uses robust selectors for resilience.
     """
     if is_excluded(product_url):
         return None
@@ -113,15 +125,53 @@ def scrape_product(product_url):
     if not soup:
         return None
 
-    namn = _get_text_or_empty(soup, ".edgtf-single-product-title")
-    artikelnummer = extract_only_numbers(_get_text_or_empty(soup, ".woocommerce-product-details__short-description strong"))
-    pris_inkl = extract_only_number_value(_get_text_or_empty(soup, ".product_price_in"))
-    pris_exkl = extract_only_number_value(_get_text_or_empty(soup, ".product_price_ex"))
+    # Use robust selectors for main fields, fallback to legacy selectors as needed
+    namn = robust_select_one(soup, [
+        ".edgtf-single-product-title",
+        "h1.product_title",
+        "h1[itemprop='name']",
+        "h1"
+    ]) or normalize_whitespace(_get_text_or_empty(soup, ".edgtf-single-product-title"))
 
-    img = soup.select_one(".woocommerce-product-gallery__image img")
-    produktbild_url = img.get("src") if img and img.get("src") else ""
+    artikelnummer = robust_select_one(soup, [
+        ".sku",
+        "[itemprop='sku']",
+        "[data-product-sku]",
+        ".woocommerce-product-details__short-description strong",
+        "span:contains('Artikelnummer') + span"
+    ]) or extract_only_numbers(_get_text_or_empty(soup, ".woocommerce-product-details__short-description strong"))
 
-    beskrivning = _get_text_or_empty(soup, "#tab-description .product_description_text p")
+    pris_inkl_raw = robust_select_one(soup, [
+        ".product_price_in",
+        ".price .amount",
+        ".woocommerce-Price-amount",
+        ".product-price",
+        "[itemprop='price']"
+    ]) or _get_text_or_empty(soup, ".product_price_in")
+    pris_inkl = parse_price(pris_inkl_raw)
+
+    pris_exkl_raw = robust_select_one(soup, [
+        ".product_price_ex"
+    ]) or _get_text_or_empty(soup, ".product_price_ex")
+    pris_exkl = parse_price(pris_exkl_raw)
+
+    produktbild_url = robust_select_attr(soup, [
+        ".woocommerce-product-gallery__image img",
+        ".product-gallery img",
+        ".product-main-image img",
+        "img.wp-post-image",
+        "img[itemprop='image']"
+    ], "src") or ""
+    if not validate_url(produktbild_url):
+        produktbild_url = ""
+
+    beskrivning_raw = robust_select_one(soup, [
+        "#tab-description .product_description_text p",
+        ".woocommerce-Tabs-panel--description p",
+        ".product_description_text p"
+    ]) or _get_text_or_empty(soup, "#tab-description .product_description_text p")
+    beskrivning = strip_html(beskrivning_raw)
+    beskrivning = normalize_whitespace(beskrivning)
 
     more_info = soup.select_one('.product_more_info.vc_col-md-6')
     info_dict = _parse_more_info(more_info)
@@ -139,6 +189,10 @@ def scrape_product(product_url):
     bredd_v, bredd_e = mått_dict.get("Bredd (värde)"), mått_dict.get("Bredd (enhet)")
     höjd_v, höjd_e = mått_dict.get("Höjd (värde)"), mått_dict.get("Höjd (enhet)")
     djup_v, djup_e = mått_dict.get("Djup (värde)"), mått_dict.get("Djup (enhet)")
+
+    # Canonical URL for robust product URL, fallback to input
+    canonical = soup.find("link", rel="canonical")
+    produkt_url = canonical["href"] if (canonical and canonical.has_attr("href") and validate_url(canonical["href"])) else product_url
 
     content_hash = hash_content(soup.prettify())
     cached = get_cached_product(artikelnummer, content_hash)
@@ -171,7 +225,7 @@ def scrape_product(product_url):
         "Volym (värde)": vol_v,
         "Volym (enhet)": vol_e,
         "Produktbild-URL": produktbild_url,
-        "Produkt-URL": product_url,
+        "Produkt-URL": produkt_url,
         "Beskrivning": beskrivning
     }
     update_cache(artikelnummer, data, content_hash)
