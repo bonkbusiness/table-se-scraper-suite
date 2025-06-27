@@ -20,6 +20,8 @@ from exclusions import is_excluded
 from bs4 import BeautifulSoup
 import requests
 from urllib.parse import urljoin
+import re
+import json
 
 from scraper.scanner import robust_select_one, robust_select_attr
 from scraper.logging import get_logger
@@ -76,29 +78,73 @@ def _get_text_or_empty(soup, selector):
     el = soup.select_one(selector)
     return el.get_text(strip=True) if el else ""
 
-def _parse_more_info(more_info):
-    info_dict = {}
-    if not more_info:
-        return info_dict
-    for p in more_info.find_all('p'):
-        text = ''.join([elem if isinstance(elem, str) else elem.get_text() for elem in p.contents]).strip()
-        text = strip_html(text)
-        text = normalize_whitespace(text)
-        if not text:
+def parse_price_string(price_str):
+    """Parse price string to value/unit."""
+    if not price_str:
+        return "", ""
+    m = re.match(r"([\d\.,]+)\s*([^\d\s]+)?", price_str.strip())
+    if not m:
+        return "", ""
+    value = m.group(1).replace(",", ".")
+    unit = m.group(2) or ""
+    return value, unit
+
+def parse_measurements_info(text):
+    """
+    Handles strings like "L 165 cm B 82 cm H 74 cm" or "H 9 cm Ø 8 cm".
+    Returns dict of recognized measurements (Längd, Bredd, Höjd, Diameter, Djup, Kapacitet, Volym, Vikt).
+    """
+    result = {}
+    key_map = {
+        "l": "Längd",
+        "b": "Bredd",
+        "h": "Höjd",
+        "d": "Djup",
+        "ø": "Diameter",
+        "diameter": "Diameter",
+        "kapacitet": "Kapacitet",
+        "volym": "Volym",
+        "vikt": "Vikt",
+    }
+    # Find pairs like "L 165 cm", "B 82 cm", etc.
+    for m in re.finditer(r"([A-Za-zÅÄÖåäöøØ]+)[\s:]*([\d\.,]+)\s*([a-zA-ZåäöÅÄÖ%]*)", text):
+        k, v, u = m.groups()
+        k_norm = key_map.get(k.lower(), k.capitalize())
+        result[f"{k_norm} (värde)"] = v.replace(",", ".")
+        result[f"{k_norm} (enhet)"] = u
+    return result
+
+def parse_features_panel(panel_html):
+    """
+    Parses the right-side feature panel from Table.se product page.
+    Returns (main_fields_dict, extra_data_dict)
+    """
+    measurements = {}
+    main_fields = {}
+    extra = {}
+    if not panel_html:
+        return main_fields, extra
+
+    # Split panel into lines, handle <br> or newlines
+    lines = re.split(r"<br\s*/?>|\n", str(panel_html))
+    for line in lines:
+        line = re.sub(r'<.*?>', '', line)  # Strip HTML tags
+        line = normalize_whitespace(line)
+        if not line or ":" not in line:
             continue
-        if text.upper().startswith("MÅTT:"):
-            value = text.replace("MÅTT:", "").strip()
-            br_split = [t.strip() for t in text.split("<br />") if t.strip()]
-            if len(br_split) > 1:
-                value = " ".join(br_split[1:])
-            info_dict["Data (text)"] = value  # 5. Change key name
-        elif ":" in text:
-            label, value = text.split(":", 1)
-            label = label.strip().capitalize()
-            if label == "Mått":
-                label = "Data (text)"  # 5. Change key name
-            info_dict[label] = value.strip()
-    return info_dict
+        label, value = [s.strip() for s in line.split(":", 1)]
+        label_norm = label.lower()
+        if label_norm == "mått":
+            # Measurements: parse for L/B/H etc.
+            measurements = parse_measurements_info(value)
+            main_fields["Data (text)"] = value
+        elif label_norm in ("färg", "material", "serie", "kapacitet", "volym", "diameter", "vikt"):
+            main_fields[label.capitalize()] = value
+        else:
+            extra[label] = value
+    # Add parsed measurements to main fields
+    main_fields.update(measurements)
+    return main_fields, extra
 
 def get_category_hierarchy_from_url(url, category_tree):
     """
@@ -139,7 +185,7 @@ def scrape_product(product_url, category_tree=None):
     if not soup:
         return None
 
-    # Use robust selectors for main fields, fallback to legacy selectors as needed
+    # Name
     namn = robust_select_one(soup, [
         ".edgtf-single-product-title",
         "h1.product_title",
@@ -147,7 +193,7 @@ def scrape_product(product_url, category_tree=None):
         "h1"
     ]) or normalize_whitespace(_get_text_or_empty(soup, ".edgtf-single-product-title"))
 
-    # 1. Artikelnummer: only digits
+    # SKU (Artikelnummer): only digits
     artikelnummer_raw = robust_select_one(soup, [
         ".sku",
         "[itemprop='sku']",
@@ -157,7 +203,7 @@ def scrape_product(product_url, category_tree=None):
     ]) or extract_only_numbers(_get_text_or_empty(soup, ".woocommerce-product-details__short-description strong"))
     artikelnummer_digits = "".join(filter(str.isdigit, str(artikelnummer_raw)))
 
-    # 3. Pris inkl. moms (fix null and fallback)
+    # Price incl. moms (Pris inkl. moms)
     pris_inkl_raw = robust_select_one(soup, [
         ".product_price_in",
         ".price .amount",
@@ -165,19 +211,14 @@ def scrape_product(product_url, category_tree=None):
         ".product-price",
         "[itemprop='price']"
     ]) or _get_text_or_empty(soup, ".product_price_in")
-    pris_inkl = parse_price(pris_inkl_raw)
-    if pris_inkl is None or pris_inkl == "":
-        pris_inkl = 0
+    pris_inkl_v, pris_inkl_e = parse_price_string(pris_inkl_raw)
 
-    # 2. Pris exkl. moms (no decimals for zero)
+    # Price exkl. moms (Pris exkl. moms)
     pris_exkl_raw = robust_select_one(soup, [
         ".product_price_ex"
     ]) or _get_text_or_empty(soup, ".product_price_ex")
-    pris_exkl = parse_price(pris_exkl_raw)
-    if pris_exkl is None or pris_exkl == "":
-        pris_exkl = 0
+    pris_exkl_v, pris_exkl_e = parse_price_string(pris_exkl_raw)
 
-    # 2. Remove decimals if value is 0
     def price_format(val):
         try:
             val_float = float(val)
@@ -187,8 +228,8 @@ def scrape_product(product_url, category_tree=None):
         except Exception:
             return val
 
-    pris_exkl_fmt = price_format(pris_exkl)
-    pris_inkl_fmt = price_format(pris_inkl)
+    pris_exkl_fmt = price_format(pris_exkl_v)
+    pris_inkl_fmt = price_format(pris_inkl_v)
 
     produktbild_url = robust_select_attr(soup, [
         ".woocommerce-product-gallery__image img",
@@ -208,28 +249,30 @@ def scrape_product(product_url, category_tree=None):
     beskrivning = strip_html(beskrivning_raw)
     beskrivning = normalize_whitespace(beskrivning)
 
+    # Parse right-side info panel
     more_info = soup.select_one('.product_more_info.vc_col-md-6')
-    info_dict = _parse_more_info(more_info)
+    main_fields, extra_fields = parse_features_panel(more_info)
 
-    farg = info_dict.get('Färg', '')
-    material = info_dict.get('Material', '')
-    serie = info_dict.get('Serie', '')
-    data_text = info_dict.get('Data (text)', '')  # 5. Use new key
+    # Fields always parsed into columns
+    farg = main_fields.get('Färg', '')
+    material = main_fields.get('Material', '')
+    serie = main_fields.get('Serie', '')
+    data_text = main_fields.get('Data (text)', '')
 
-    # 4. Parse out "Data (text)" (formerly "Mått (text)") into subfields
-    mått_dict = parse_measurements(data_text) if data_text else {}
-    diameter_v, diameter_e = parse_value_unit(info_dict.get('Diameter', ''))
-    kap_v, kap_e = parse_value_unit(info_dict.get('Kapacitet', ''))
-    vol_v, vol_e = parse_value_unit(info_dict.get('Volym', ''))
-    längd_v, längd_e = mått_dict.get("Längd (värde)"), mått_dict.get("Längd (enhet)")
-    bredd_v, bredd_e = mått_dict.get("Bredd (värde)"), mått_dict.get("Bredd (enhet)")
-    höjd_v, höjd_e = mått_dict.get("Höjd (värde)"), mått_dict.get("Höjd (enhet)")
-    djup_v, djup_e = mått_dict.get("Djup (värde)"), mått_dict.get("Djup (enhet)")
+    # Specific measurements
+    längd_v, längd_e = main_fields.get("Längd (värde)"), main_fields.get("Längd (enhet)")
+    bredd_v, bredd_e = main_fields.get("Bredd (värde)"), main_fields.get("Bredd (enhet)")
+    höjd_v, höjd_e = main_fields.get("Höjd (värde)"), main_fields.get("Höjd (enhet)")
+    djup_v, djup_e = main_fields.get("Djup (värde)"), main_fields.get("Djup (enhet)")
+    diameter_v, diameter_e = main_fields.get("Diameter (värde)"), main_fields.get("Diameter (enhet)")
+    kap_v, kap_e = main_fields.get("Kapacitet (värde)"), main_fields.get("Kapacitet (enhet)")
+    vol_v, vol_e = main_fields.get("Volym (värde)"), main_fields.get("Volym (enhet)")
+    vikt_v, vikt_e = main_fields.get("Vikt (värde)"), main_fields.get("Vikt (enhet)")
 
     canonical = soup.find("link", rel="canonical")
     produkt_url = canonical["href"] if (canonical and canonical.has_attr("href") and validate_url(canonical["href"])) else product_url
 
-    # 6. Kategori (parent) and Kategori (sub)
+    # Category
     kategori_parent, kategori_sub = ("", "")
     if category_tree is not None:
         kategori_parent, kategori_sub = get_category_hierarchy_from_url(produkt_url, category_tree)
@@ -239,6 +282,10 @@ def scrape_product(product_url, category_tree=None):
     if cached:
         return cached
 
+    # Compose extra_data JSON string (everything in extra_fields that isn't a main column)
+    extra_data_dict = dict(extra_fields)
+    extra_data_json = json.dumps(extra_data_dict, ensure_ascii=False, sort_keys=True) if extra_data_dict else ""
+
     data = {
         "Namn": namn,
         "Artikelnummer": artikelnummer_digits,
@@ -246,10 +293,9 @@ def scrape_product(product_url, category_tree=None):
         "Material": material,
         "Serie": serie,
         "Pris exkl. moms (värde)": pris_exkl_fmt,
-        "Pris exkl. moms (enhet)": "kr" if pris_exkl_fmt else "",
+        "Pris exkl. moms (enhet)": pris_exkl_e or "kr" if pris_exkl_fmt else "",
         "Pris inkl. moms (värde)": pris_inkl_fmt,
-        "Pris inkl. moms (enhet)": "kr" if pris_inkl_fmt else "",
-        "Data (text)": data_text,  # 5. Changed key name
+        "Pris inkl. moms (enhet)": pris_inkl_e or "kr" if pris_inkl_fmt else "",
         "Längd (värde)": längd_v,
         "Längd (enhet)": längd_e,
         "Bredd (värde)": bredd_v,
@@ -264,11 +310,15 @@ def scrape_product(product_url, category_tree=None):
         "Kapacitet (enhet)": kap_e,
         "Volym (värde)": vol_v,
         "Volym (enhet)": vol_e,
+        "Vikt (värde)": vikt_v,
+        "Vikt (enhet)": vikt_e,
+        "Data (text)": data_text,
         "Kategori (parent)": kategori_parent,
         "Kategori (sub)": kategori_sub,
         "Produktbild-URL": produktbild_url,
         "Produkt-URL": produkt_url,
-        "Beskrivning": beskrivning
+        "Beskrivning": beskrivning,
+        "Extra data": extra_data_json,
     }
     update_cache(artikelnummer_digits, data, content_hash)
     return data
