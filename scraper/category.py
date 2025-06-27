@@ -1,7 +1,12 @@
-from exclusions import is_excluded
+from exclusions import is_excluded, prune_excluded_nodes
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
+from scraper.utils import (
+    get_category_levels,
+    build_category_colors,
+    pastel_gradient_color,
+)
 
 BASE_URL = "https://www.table.se"
 
@@ -18,10 +23,10 @@ def get_soup(url, timeout=20):
         print(f"DEBUG: get_soup failed for {url} with {e}")
         return None
 
-def parse_menu_ul(ul):
+def parse_menu_ul(ul, level=0):
     """
     Recursively parse a <ul> of the mega menu for categories.
-    Returns a list of dicts with keys: name, url, and subs (list of subcategories).
+    Returns a list of dicts with keys: name, url, color, level, and subs (list of subcategories).
     """
     categories = []
     if not ul:
@@ -36,8 +41,9 @@ def parse_menu_ul(ul):
         name = a.get_text(strip=True)
         url = urljoin(BASE_URL, href)
         sub_ul = li.find("ul")
-        subs = parse_menu_ul(sub_ul) if sub_ul else []
-        categories.append({"name": name, "url": url, "subs": subs})
+        subs = parse_menu_ul(sub_ul, level + 1) if sub_ul else []
+        color = pastel_gradient_color(level)
+        categories.append({"name": name, "url": url, "color": color, "level": level, "subs": subs})
     return categories
 
 def prune_excluded_nodes(node):
@@ -55,7 +61,9 @@ def prune_excluded_nodes(node):
         pruned = prune_excluded_nodes(sub)
         if pruned:
             pruned_subs.append(pruned)
-    return {"name": node["name"], "url": node["url"], "subs": pruned_subs}
+    node_copy = node.copy()
+    node_copy["subs"] = pruned_subs
+    return node_copy
 
 def extract_category_tree():
     """
@@ -65,13 +73,9 @@ def extract_category_tree():
     The returned structure is a list of dicts (top-level categories), each with:
       - name: str
       - url: str
+      - color: str
+      - level: int
       - subs: list (subcategories, same structure recursively)
-
-    This structure supports downstream assertions for:
-      - Top-level names (for presence/deduplication checks)
-      - Subcategories (for recursion checks)
-      - URLs (for format validation)
-      - Exclusions (filtered out from the result)
     """
     resp = requests.get(BASE_URL)
     soup = BeautifulSoup(resp.text, "html.parser")
