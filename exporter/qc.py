@@ -2,10 +2,24 @@
 exporter/qc.py
 
 Quality control and data validation for the Table.se scraper suite.
-Includes functions to check field completeness and find duplicates.
+Includes functions to check field completeness, find duplicates, and export errors.
 """
 
-def deduplicate_products(products, key_fields=None):
+from typing import List, Dict, Any, Optional, Tuple
+from openpyxl import Workbook
+
+try:
+    from scraper.logging import get_logger
+except ImportError:
+    import logging
+    get_logger = logging.getLogger
+
+logger = get_logger("qc")
+
+def deduplicate_products(
+    products: List[Dict[str, Any]],
+    key_fields: Optional[List[str]] = None
+) -> List[Dict[str, Any]]:
     """
     Remove duplicate products based on a tuple of key fields (default: ['Namn', 'Artikelnummer']).
     """
@@ -18,9 +32,15 @@ def deduplicate_products(products, key_fields=None):
         if key not in seen:
             seen.add(key)
             deduped.append(prod)
+        else:
+            logger.debug(f"Duplicate found and removed: {key}")
+    logger.info(f"Deduplicated products: {len(products)} -> {len(deduped)}")
     return deduped
 
-def check_field_completeness(products, required_fields=None):
+def check_field_completeness(
+    products: List[Dict[str, Any]],
+    required_fields: Optional[List[str]] = None
+) -> List[Dict[str, Any]]:
     """
     Returns a list of products missing any of the required fields.
     """
@@ -30,18 +50,39 @@ def check_field_completeness(products, required_fields=None):
     for prod in products:
         for field in required_fields:
             if not prod.get(field):
+                logger.debug(f"Product missing field {field}: {prod.get('Artikelnummer', prod)}")
                 incomplete.append(prod)
                 break
+    logger.info(f"Products with missing fields: {len(incomplete)} / {len(products)}")
     return incomplete
 
-from openpyxl import Workbook
+def find_duplicate_products(
+    products: List[Dict[str, Any]],
+    key_fields: Optional[List[str]] = None
+) -> List[Tuple[Tuple, List[Dict[str, Any]]]]:
+    """
+    Find duplicate products based on key fields.
 
-def export_errors_to_xlsx(errors, filename):
+    Returns:
+        list of (key, [product1, product2, ...]) for duplicates.
+    """
+    if not key_fields:
+        key_fields = ["Namn", "Artikelnummer"]
+    lookup = {}
+    for prod in products:
+        key = tuple(prod.get(field, "") for field in key_fields)
+        lookup.setdefault(key, []).append(prod)
+    duplicates = [(k, v) for k, v in lookup.items() if len(v) > 1]
+    for key, group in duplicates:
+        logger.warning(f"Duplicate key {key}: {len(group)} occurrences")
+    return duplicates
+
+def export_errors_to_xlsx(errors: List[Dict[str, Any]], filename: str) -> Optional[str]:
     """
     Export error list to the given xlsx filename.
     """
     if not errors:
-        print("Inga valideringsfel att exportera.")
+        logger.info("No validation errors to export.")
         return None
     try:
         wb = Workbook()
@@ -55,49 +96,32 @@ def export_errors_to_xlsx(errors, filename):
                 str(err.get("product", err))
             ])
         wb.save(filename)
-        print(f"Export av fel till XLSX klar: {filename}")
+        logger.info(f"Exported errors to XLSX: {filename}")
         return filename
     except Exception as e:
-        print(f"Fel vid sparande av fel-XLSX: {e}")
+        logger.error(f"Error saving errors XLSX: {e}")
         return None
 
-def check_field_completeness(products, required_fields=None):
+# Optionally, integrate with scanner.validate_product for deeper validation:
+def validate_products_with_scanner(
+    products: List[Dict[str, Any]],
+    required_fields: Optional[List[str]] = None
+) -> Dict[str, List[str]]:
     """
-    Identify products missing any required field.
-
-    Args:
-        products (list of dict): List of products.
-        required_fields (list of str): Fields required for completeness.
-
-    Returns:
-        list of dict: List of incomplete product records.
+    Uses scanner.validate_product to get detailed error lists.
+    Returns a dict of {sku or idx: [error messages]}.
     """
-    if not required_fields:
-        required_fields = ["Namn", "Artikelnummer", "Pris inkl. moms (värde)", "Produkt-URL"]
-    incomplete = []
-    for prod in products:
-        for field in required_fields:
-            if not prod.get(field):
-                incomplete.append(prod)
-                break
-    return incomplete
-
-def find_duplicate_products(products, key_fields=None):
-    """
-    Find duplicate products based on key fields.
-
-    Args:
-        products (list of dict): List of products.
-        key_fields (list of str): Fields to define uniqueness.
-
-    Returns:
-        list of tuple: List of (key, [product1, product2, ...]) for duplicates.
-    """
-    if not key_fields:
-        key_fields = ["Namn", "Artikelnummer"]
-    lookup = {}
-    for prod in products:
-        key = tuple(prod.get(field, "") for field in key_fields)
-        lookup.setdefault(key, []).append(prod)
-    duplicates = [(k, v) for k, v in lookup.items() if len(v) > 1]
-    return duplicates
+    try:
+        from scraper.scanner import validate_product
+    except ImportError:
+        logger.warning("scanner.validate_product not available.")
+        return {}
+    errors = {}
+    for idx, prod in enumerate(products):
+        issues = validate_product(prod, required_fields=required_fields)
+        if issues:
+            key = prod.get("Artikelnummer") or f"idx_{idx}"
+            errors[key] = issues
+            logger.debug(f"Validation issues for {key}: {issues}")
+    logger.info(f"Scanner flagged {len(errors)} products with issues.")
+    return errors
