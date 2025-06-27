@@ -21,12 +21,20 @@ API:
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.worksheet.dimensions import ColumnDimension
 import os
 from scraper.logging import get_logger
 from scraper.utils import build_category_colors, make_output_filename
 
 logger = get_logger("xlsx-export")
+
+def to_argb(color):
+    color = str(color).lstrip('#')
+    if len(color) == 6:
+        return "FF" + color.upper()
+    elif len(color) == 8:
+        return color.upper()
+    else:
+        return "FFFFFFFF"
 
 def export_to_xlsx(data, filename=None, sort_key="Namn"):
     """
@@ -44,7 +52,7 @@ def export_to_xlsx(data, filename=None, sort_key="Namn"):
         "Pris exkl. moms (enhet)",
         "Pris inkl. moms (värde)",
         "Pris inkl. moms (enhet)",
-        "Mått (text)",
+        "Data (text)",  # 5. Changed key name here
         "Längd (värde)", "Längd (enhet)",
         "Bredd (värde)", "Bredd (enhet)",
         "Höjd (värde)", "Höjd (enhet)",
@@ -52,15 +60,14 @@ def export_to_xlsx(data, filename=None, sort_key="Namn"):
         "Diameter (värde)", "Diameter (enhet)",
         "Kapacitet (värde)", "Kapacitet (enhet)",
         "Volym (värde)", "Volym (enhet)",
-        "Kategori (parent)",
-        "Kategori (sub)",
+        "Kategori (parent)", # 6. Add/keep
+        "Kategori (sub)",    # 6. Add/keep
         "Produktbild-URL",
         "Produkt-URL"
     ]
     if not data:
         logger.warning("Ingen data att exportera till XLSX.")
         return None
-    # If not provided, auto-create filename in export/
     if filename is None:
         filename = make_output_filename('products', 'xlsx', 'export')
     os.makedirs(os.path.dirname(filename), exist_ok=True)
@@ -70,7 +77,6 @@ def export_to_xlsx(data, filename=None, sort_key="Namn"):
         ws = wb.active
         ws.title = "Produkter"
 
-        # Build color lookup for categories/subcategories
         get_color = build_category_colors(data_sorted)
 
         # Header row: bold white, dark bg, freeze, autofilter
@@ -90,21 +96,18 @@ def export_to_xlsx(data, filename=None, sort_key="Namn"):
             for col_num, col in enumerate(COLUMN_ORDER, 1):
                 value = row.get(col, "")
                 cell = ws.cell(row=row_num, column=col_num, value=value)
-                # Banding for rows
                 if is_band:
                     cell.fill = band_color
-                # Category parent/sub coloring
                 if col == "Kategori (parent)" or col == "Kategori (sub)":
                     color = get_color(row)
-                    if color and color != "FFFFFFFF":
-                        cell.fill = PatternFill("solid", fgColor=color)
-                # Wrap long text
+                    if color:
+                        color = to_argb(color)
+                        if color != "FFFFFFFF":
+                            cell.fill = PatternFill("solid", fgColor=color)
                 cell.alignment = Alignment(wrap_text=True, vertical="center")
-                # Hyperlinks for URLs
                 if col in ("Produktbild-URL", "Produkt-URL") and value:
                     cell.hyperlink = value
                     cell.style = "Hyperlink"
-                # Alignment for numbers
                 if any(kw in col for kw in ("värde", "Pris", "Längd", "Bredd", "Höjd", "Djup", "Diameter", "Kapacitet", "Volym")):
                     cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=True)
                 elif col not in ("Produktbild-URL", "Produkt-URL"):
@@ -113,7 +116,6 @@ def export_to_xlsx(data, filename=None, sort_key="Namn"):
                                     right=Side(style="thin", color="FFD3D3D3"),
                                     top=Side(style="thin", color="FFD3D3D3"),
                                     bottom=Side(style="thin", color="FFD3D3D3"))
-        # Autosize columns to content
         for col_num, col in enumerate(COLUMN_ORDER, 1):
             max_length = max(
                 [len(str(row.get(col, ""))) for row in data_sorted] + [len(col)]
@@ -130,14 +132,6 @@ def export_products_with_qc(products, filename=None, error_filename=None):
     """
     Main entrypoint for the QC pipeline: deduplicate, check completeness, and export to XLSX.
     Optionally export products with missing fields to a separate XLSX file.
-
-    Args:
-        products: List[Dict[str, Any]] -- Raw product list (may be unfiltered).
-        filename: str or None -- Main output XLSX file. If None, auto-generated.
-        error_filename: str or None -- Optional error output XLSX file. If None, auto-generated.
-
-    Returns:
-        str or None -- The filename of the main XLSX export, or None on error.
     """
     from exporter.qc import deduplicate_products, check_field_completeness, export_errors_to_xlsx
 
@@ -147,7 +141,6 @@ def export_products_with_qc(products, filename=None, error_filename=None):
     exported = export_to_xlsx(valid, filename)
     logger.info(f"QC-pipeline: Exporterade {len(valid)} produkter till {exported}")
     if (error_filename or incomplete):
-        # Always write errors to error/ folder
         if error_filename is None:
             error_filename = make_output_filename('errors', 'xlsx', 'error')
         export_errors_to_xlsx(
