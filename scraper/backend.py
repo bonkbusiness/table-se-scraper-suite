@@ -8,8 +8,7 @@ from logging_utils import get_logger
 from cache import Cache
 from fetch import fetch_url, enable_requests_cache
 from scanner import scan_products  # Updated: use the new scanner interface
-from utils import deduplicate
-
+from scraper.utils import deduplicate, make_output_filename
 from .category import extract_category_tree
 from .product import extract_products_from_category, scrape_product
 from exclusions import is_excluded
@@ -123,7 +122,7 @@ def main():
     parser = argparse.ArgumentParser(description="Table.se Product Scraper Backend CLI")
     parser.add_argument("--max-workers", type=int, default=8, help="Number of parallel threads (default: 8)")
     parser.add_argument("--retries", type=int, default=2, help="Number of retries for failed requests (default: 2)")
-    parser.add_argument("--output", type=str, default="products.json", help="Output JSON file (default: products.json)")
+    parser.add_argument("--output", type=str, default=None, help="Output JSON file (default: products_<timestamp>.json)")
     parser.add_argument("--throttle", type=float, default=0.7, help="Base throttle delay between requests (default: 0.7)")
     parser.add_argument("--cache", action="store_true", help="Enable HTTP requests caching (requires requests-cache)")
     parser.add_argument("--review-export", action="store_true", help="Export flagged products for human review (Excel)")
@@ -150,6 +149,8 @@ def main():
     logger.info(f"Scan complete. {flagged_count} products flagged for review.")
 
     # 5. Export result (only valid products)
+    if args.output is None:
+        args.output = make_output_filename('products', 'json')
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(filtered_products, f, ensure_ascii=False, indent=2)
     logger.info(f"Exported {len(filtered_products)} products to {args.output}")
