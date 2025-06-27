@@ -1,3 +1,32 @@
+"""
+exporter/csv.py
+
+Exports product dictionaries to CSV, with support for Table.se's full product field set and QC pipeline integration.
+
+Features:
+- Exports a list of product dicts to a CSV file, sorted by a configurable key ("Namn" by default).
+- Uses a fixed column order for consistency with other Table.se exports.
+- Includes "Kategori (parent)" and "Kategori (sub)" columns for parent and subcategory information.
+- Logging is used for all status and error messages.
+- Can be used directly for exporting already quality-controlled data, or via the QC pipeline entrypoint.
+- Compatible with the man-in-the-middle QC logic in exporter/qc.py.
+
+API:
+- export_to_csv(data, filename, sort_key="Namn")
+    Exports the given list of dicts to a CSV file.
+    Returns the filename on success, or None on error.
+
+- export_products_with_qc(products, filename, error_filename=None)
+    Orchestrates deduplication and completeness-checking (via exporter.qc), then exports only valid products to CSV.
+    Optionally exports products with missing fields to a separate CSV.
+    Returns the filename of the main CSV on success, or None on error.
+
+Typical usage:
+    from exporter.csv import export_products_with_qc
+    export_products_with_qc(products, "output.csv", error_filename="errors.csv")
+
+"""
+
 import csv
 import os
 from scraper.logging import get_logger
@@ -9,6 +38,14 @@ def export_to_csv(data, filename, sort_key="Namn"):
     Export a list of product dicts to CSV, sorted by sort_key.
     Each product dict may include 'Kategori (parent)' and 'Kategori (sub)' fields for parent and subcategories.
     Returns the filename or None on error.
+
+    Args:
+        data: List[Dict[str, Any]] -- List of product dictionaries.
+        filename: str -- Path to output CSV file.
+        sort_key: str -- Which field to sort products by (default "Namn").
+
+    Returns:
+        str or None
     """
     COLUMN_ORDER = [
         "Namn",
@@ -52,8 +89,16 @@ def export_to_csv(data, filename, sort_key="Namn"):
 
 def export_products_with_qc(products, filename, error_filename=None):
     """
-    Main entrypoint for QC pipeline: deduplicate, check completeness, and export to CSV.
-    Optionally export errors to a separate CSV file.
+    Main entrypoint for the QC pipeline: deduplicate, check completeness, and export to CSV.
+    Optionally export products with missing fields to a separate CSV file.
+
+    Args:
+        products: List[Dict[str, Any]] -- Raw product list (may be unfiltered).
+        filename: str -- Main output CSV file.
+        error_filename: str or None -- Optional error output CSV file.
+
+    Returns:
+        str or None -- The filename of the main CSV export, or None on error.
     """
     from exporter.qc import deduplicate_products, check_field_completeness, export_errors_to_csv
 
