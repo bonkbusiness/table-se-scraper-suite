@@ -1,12 +1,12 @@
 """
 Product scraping module for table.se
 
-This module provides functions to extract product URLs from all category pages (with pagination),
+This module provides functions to extract product URLs from all category pages (no pagination),
 and to scrape detailed product data from individual product pages. It is designed for the specific
 structure of table.se, as of 2024, and integrates with the main scraper suite's caching and exclusion logic.
 
 Functions:
-    - extract_products_from_category: Get all product URLs from a category (handles pagination).
+    - extract_products_from_category: Get all product URLs from a category (no pagination).
     - extract_all_product_urls: Traverse a category tree and return all unique product URLs.
     - scrape_product: Extract all relevant fields from a table.se product page into a dictionary.
 """
@@ -19,71 +19,57 @@ from .cache import get_cached_product, update_cache, hash_content
 from exclusions import is_excluded
 from bs4 import BeautifulSoup
 import requests
-from urllib.parse import urljoin, urlparse, parse_qs, urlencode, urlunparse
+from urllib.parse import urljoin
 
-from scanner import robust_select_one, robust_select_attr
-from logging import get_logger
+from scraper.scanner import robust_select_one, robust_select_attr
+from scraper.logging import get_logger
 
 logger = get_logger(__name__)
 
 BASE_URL = "https://www.table.se"
 
-def _build_paged_url(base_url, page_num):
-    """Helper to build a paged URL."""
-    if page_num == 1:
-        return base_url
-    parsed = urlparse(base_url)
-    qs = parse_qs(parsed.query)
-    qs['page'] = [str(page_num)]
-    new_query = urlencode(qs, doseq=True)
-    return urlunparse(parsed._replace(query=new_query))
-
 def _extract_product_links(soup):
-    """Return set of product URLs from soup."""
+    """
+    Return set of product URLs from soup.
+    Table.se uses <a class="woocommerce-LoopProduct-link" href="...">
+    """
     return {
         urljoin(BASE_URL, a.get("href"))
-        for a in soup.find_all("a", href=True)
-        if "woocommerce-LoopProduct-link" in (a.get("class") or [])
+        for a in soup.find_all("a", class_="woocommerce-LoopProduct-link", href=True)
     }
 
 def extract_products_from_category(category_url):
     """
-    Given a category URL, return a list of all product page URLs in that category (across all paginated pages).
+    Given a category URL, return a list of all product page URLs in that category.
+    Table.se does NOT use pagination: all products are listed on a single page.
     """
-    product_urls = set()
-    page = 1
-    seen_pages = set()
-    while True:
-        url = _build_paged_url(category_url, page)
-        if url in seen_pages:
-            break
-        seen_pages.add(url)
-
-        resp = requests.get(url)
-        if not resp.ok:
-            break
-        soup = BeautifulSoup(resp.text, "html.parser")
-        links = _extract_product_links(soup)
-        filtered_links = {u for u in links if not is_excluded(u)}
-        product_urls.update(filtered_links)
-
-        if not links:
-            break
-        page += 1
-    return list(product_urls)
+    logger.info(f"Fetching products for category: {category_url}")
+    try:
+        resp = requests.get(category_url, timeout=20)
+        resp.raise_for_status()
+    except Exception as e:
+        logger.warning(f"Failed to fetch {category_url}: {e}")
+        return []
+    soup = BeautifulSoup(resp.text, "html.parser")
+    links = _extract_product_links(soup)
+    filtered_links = {u for u in links if not is_excluded(u)}
+    logger.info(f"Found {len(filtered_links)} products on category page: {category_url}")
+    return list(filtered_links)
 
 def extract_all_product_urls(category_tree):
     """
     Traverse the full category tree and extract all unique product URLs.
-    Uses make_output_filename from scraper.utils if outputting URLs to a file.
+    Logs progress for each category.
     """
     product_urls = set()
     def traverse(node):
+        logger.info(f"Processing category: {node['url']}")
         product_urls.update(extract_products_from_category(node["url"]))
         for sub in node.get("subs", []):
             traverse(sub)
     for node in category_tree:
         traverse(node)
+    logger.info(f"Total unique product URLs collected: {len(product_urls)}")
     return product_urls
 
 def _get_text_or_empty(soup, selector):
@@ -119,8 +105,13 @@ def scrape_product(product_url):
     """
     if is_excluded(product_url):
         return None
-    resp = requests.get(product_url)
-    if not resp.ok:
+    try:
+        resp = requests.get(product_url, timeout=20)
+        if not resp.ok:
+            logger.warning(f"Non-200 response for {product_url}: {resp.status_code}")
+            return None
+    except Exception as e:
+        logger.warning(f"Failed to fetch {product_url}: {e}")
         return None
     soup = BeautifulSoup(resp.text, "html.parser")
     if not soup:

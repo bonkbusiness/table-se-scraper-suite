@@ -1,5 +1,5 @@
-from exclusions import is_excluded, prune_excluded_nodes
 import requests
+from exclusions import is_excluded
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from scraper.utils import (
@@ -46,25 +46,6 @@ def parse_menu_ul(ul, level=0):
         categories.append({"name": name, "url": url, "color": color, "level": level, "subs": subs})
     return categories
 
-def prune_excluded_nodes(node):
-    """
-    Recursively remove nodes (and their subcategories) that should be excluded.
-    Args:
-        node (dict): Category node.
-    Returns:
-        dict or None: The pruned node, or None if excluded.
-    """
-    if is_excluded(node["url"]):
-        return None
-    pruned_subs = []
-    for sub in node.get("subs", []):
-        pruned = prune_excluded_nodes(sub)
-        if pruned:
-            pruned_subs.append(pruned)
-    node_copy = node.copy()
-    node_copy["subs"] = pruned_subs
-    return node_copy
-
 def extract_category_tree():
     """
     Extract the full category tree from the mega menu navigation on the homepage,
@@ -88,7 +69,6 @@ def extract_category_tree():
     if not top_ul:
         return []
     tree = parse_menu_ul(top_ul)
-    tree = [prune_excluded_nodes(node) for node in tree]
     tree = [node for node in tree if node]
     return tree
 
@@ -150,38 +130,17 @@ def no_excluded_categories_present(category_tree):
 
 def extract_product_urls_from_category(category_url):
     """
-    Yield all product URLs from a category, following pagination.
+    Yield all product URLs from a category page. 
+    Table.se does NOT use pagination, so only one request per category.
     Skips excluded product URLs via is_excluded.
     """
-    page = 1
-    seen_pages = set()
-    while True:
-        if page == 1:
-            url = category_url
-        else:
-            url = category_url
-            if '?' in url:
-                url += f"&page={page}"
-            else:
-                url += f"?page={page}"
-        if url in seen_pages:
-            break
-        seen_pages.add(url)
-
-        soup = get_soup(url)
-        if not soup:
-            break
-        found_any = False
-        for a in soup.find_all("a", href=True):
-            href = a['href']
-            if "/produkt/" in href:
-                product_url = urljoin(category_url, href)
-                if not is_excluded(product_url):
-                    found_any = True
-                    yield product_url
-        if not found_any:
-            break
-        page += 1
+    soup = get_soup(category_url)
+    if not soup:
+        return
+    for a in soup.find_all("a", class_="woocommerce-LoopProduct-link", href=True):
+        product_url = urljoin(category_url, a['href'])
+        if not is_excluded(product_url):
+            yield product_url
 
 def extract_product_urls(category_tree):
     """

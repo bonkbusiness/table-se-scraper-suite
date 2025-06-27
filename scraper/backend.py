@@ -4,16 +4,22 @@ import json
 import time
 from typing import List, Dict, Any
 
-from logging import get_logger
-from cache import Cache
-from fetch import fetch_url, enable_requests_cache
-from scanner import scan_products  # Updated: use the new scanner interface
+import logging
+from scraper.cache import Cache
+from scraper.fetch import fetch_url, enable_requests_cache
+from scraper.scanner import scan_products  # Updated: use the new scanner interface
 from scraper.utils import deduplicate, make_output_filename
 from .category import extract_category_tree
 from .product import extract_products_from_category, scrape_product
 from exclusions import is_excluded
 
-logger = get_logger("backend")
+logger = logging.getLogger("scraper.backend")
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname)s %(name)s: %(message)s'
+)
+
+# Instantiate cache
 cache = Cache()
 
 def collect_product_urls(tree: List[Dict[str, Any]], max_workers: int = 8, retries: int = 2, throttle: float = 0.7) -> List[str]:
@@ -44,7 +50,8 @@ def collect_product_urls(tree: List[Dict[str, Any]], max_workers: int = 8, retri
                     html = fetch_url(url, throttle=throttle, max_retries=retries)
                     cache.set(url, html, Cache.hash_content(html))
                     logger.debug(f"Fetched and cached category: {url}")
-                return extract_products_from_category(html)
+                # Pass the category URL, not HTML, to extract_products_from_category
+                return extract_products_from_category(url)
             except Exception as e:
                 logger.warning(f"Error fetching category {url}, attempt {attempt+1}/{retries}: {e}")
                 if attempt < retries:
@@ -85,7 +92,7 @@ def scrape_products(product_urls: List[str], max_workers: int = 8, retries: int 
                     logger.debug(f"Fetched and cached product HTML: {url}")
 
                 # Use the product scraper
-                product = scrape_product(url)
+                product = scrape_product(url)  # Call the singular function, passing just the URL
                 if not product:
                     return None
 

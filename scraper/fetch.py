@@ -10,7 +10,7 @@ try:
     from scraper.logging import get_logger
     logger = get_logger("fetch")
 except ImportError:
-    import logging
+    import scraper.logging
     logger = logging.getLogger("fetch")
 
 DEFAULT_USER_AGENTS = [

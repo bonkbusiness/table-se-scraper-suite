@@ -1,7 +1,7 @@
 import re
 from typing import List, Dict, Any, Tuple, Optional
 
-from logging import get_logger
+from scraper.logging import get_logger
 
 logger = get_logger("scanner")
 

@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from scraper.utils import make_output_filename
 from datetime import datetime
 
 class LoggerFactory:
