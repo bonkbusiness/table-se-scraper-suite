@@ -1,5 +1,13 @@
 requests
 beautifulsoup4
 openpyxl
+pandas
 tqdm
+python-dateutil
+lxml
+xlrd
+xlsxwriter
+pytest
+requests-cache
+colorama
 numpy
