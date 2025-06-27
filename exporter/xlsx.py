@@ -24,11 +24,11 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.worksheet.dimensions import ColumnDimension
 import os
 from scraper.logging import get_logger
-from scraper.utils import build_category_colors
+from scraper.utils import build_category_colors, make_output_filename
 
 logger = get_logger("xlsx-export")
 
-def export_to_xlsx(data, filename, sort_key="Namn"):
+def export_to_xlsx(data, filename=None, sort_key="Namn"):
     """
     Export a list of product dicts to XLSX, sorted by sort_key.
     Each product dict may include 'Kategori (parent)' and 'Kategori (sub)' fields for parent and subcategories.
@@ -60,6 +60,9 @@ def export_to_xlsx(data, filename, sort_key="Namn"):
     if not data:
         logger.warning("Ingen data att exportera till XLSX.")
         return None
+    # If not provided, auto-create filename in export/
+    if filename is None:
+        filename = make_output_filename('products', 'xlsx', 'export')
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     try:
         data_sorted = sorted(data, key=lambda x: x.get(sort_key, "").lower())
@@ -123,15 +126,15 @@ def export_to_xlsx(data, filename, sort_key="Namn"):
         logger.error(f"Fel vid sparande av XLSX: {e}")
         return None
 
-def export_products_with_qc(products, filename, error_filename=None):
+def export_products_with_qc(products, filename=None, error_filename=None):
     """
     Main entrypoint for the QC pipeline: deduplicate, check completeness, and export to XLSX.
     Optionally export products with missing fields to a separate XLSX file.
 
     Args:
         products: List[Dict[str, Any]] -- Raw product list (may be unfiltered).
-        filename: str -- Main output XLSX file.
-        error_filename: str or None -- Optional error output XLSX file.
+        filename: str or None -- Main output XLSX file. If None, auto-generated.
+        error_filename: str or None -- Optional error output XLSX file. If None, auto-generated.
 
     Returns:
         str or None -- The filename of the main XLSX export, or None on error.
@@ -142,8 +145,11 @@ def export_products_with_qc(products, filename, error_filename=None):
     incomplete = check_field_completeness(deduped)
     valid = [p for p in deduped if p not in incomplete]
     exported = export_to_xlsx(valid, filename)
-    logger.info(f"QC-pipeline: Exporterade {len(valid)} produkter till {filename}")
-    if error_filename and incomplete:
+    logger.info(f"QC-pipeline: Exporterade {len(valid)} produkter till {exported}")
+    if (error_filename or incomplete):
+        # Always write errors to error/ folder
+        if error_filename is None:
+            error_filename = make_output_filename('errors', 'xlsx', 'error')
         export_errors_to_xlsx(
             [{"error_type": "missing_fields", "product": p} for p in incomplete],
             error_filename
