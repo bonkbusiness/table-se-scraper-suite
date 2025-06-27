@@ -4,7 +4,7 @@ import json
 import time
 from typing import List, Dict, Any
 
-from logging_utils import get_logger
+from logging import get_logger
 from cache import Cache
 from fetch import fetch_url, enable_requests_cache
 from scanner import scan_products  # Updated: use the new scanner interface
