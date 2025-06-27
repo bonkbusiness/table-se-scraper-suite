@@ -83,3 +83,14 @@ class LoggerFactory:
     @staticmethod
     def get_logger(name=None):
         return logging.getLogger(name)
+
+def get_logger(name):
+    log_file = make_output_filename('scrape', 'log', 'logs')
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+    fh = logging.FileHandler(log_file, encoding='utf-8')
+    formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s')
+    fh.setFormatter(formatter)
+    if not logger.handlers:
+        logger.addHandler(fh)
+    return logger
